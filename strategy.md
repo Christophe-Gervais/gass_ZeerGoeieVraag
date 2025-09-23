@@ -22,22 +22,28 @@
     - Potential architectures:
     
     1. Single model: Image -> yes/no
-    2. Two models:
-        - Classifying dents, dirt and bottle type
+    2a. Two models:
+        - Classification for dents, dirt and bottle type - Simply take the images of bad and good and let the AI figure out what makes one good or bad.
+        - Text recognition
+    2b. Two models:
+        - Detection for dents, dirt and bottle type - Teach the AI to draw a rect around dents, dirt and other errors, this allows it to say what's wrong with it and should be more accurate at cost of inference and training + data prep time.
         - Text recognition
     3. Three models:
         1. Downscale input image
         2. Highlight interest areas
-        3. Crop areas and inference text and classification on these
+        3. Crop areas and inference text and detection on these
     
     - Suggested architecture:
 
-    Two models, but initally only the classification one:
-    Replacing the first job is easy as AI is very good at classification out of the box. It will definitely be very fast and capable at detecting damaged bottles.
+    Two models, but initally only one and best to start with classification to ease dataset prep:
+    Replacing the first job is easy as AI is very good at classification. It will definitely train and inference very fast and be capable at detecting damaged bottles.
+    If this works, accuracy can be increased with larger, cleaner dataset, larger model, more training runs or switch to a detection model.
+
+    We can also split our group, have two people prepare a classification model and dataset and two others can try a detection model and we can try to beat each other at accuracy, then we pick the winning model to show off in presentation.
 
     The text recognition is much more difficult but is also possible. I suggest making the text detection model generate a certainty value, if that is below a threshold there are two options to deal with the gas cylinder:
     1. Discard bottle in case of uncertainty.
-    2. Separate bottles that pass classification but fail text to a separate batch and have one employee do a manual check on these remaining edge cases for which the model can't guarantee accuracy.
+    2. Separate bottles that pass detection but fail text to a separate batch and have one employee do a manual check on these remaining edge cases for which the model can't guarantee accuracy.
 
 
 
@@ -60,7 +66,7 @@
 # Suggested Steps
 
 1. Collect sample images
-2. Manually classify them into training data
+2. Manually split them into training data
 2. Write the fine tune script
 2. Write the inference script
 3. Fine tune the model
@@ -83,6 +89,11 @@ The script should log how many images are processed per second and how many mill
 
 ## Values we need the model to output
 
-- Type of defect detected and rect of the area where this is detected
-    1. Dent/deformation/wrong model
-    2. Dirt
+There are two options
+
+1. Type of defect detected and rect of the area where this is detected. (Detection model)
+    1. Dent
+    2. Deformation/wrong model
+    3. Dirt
+
+2. Which class the image belongs to. This can be a class for good and a class for bad, or more detailed classes. (Classification model)

@@ -7,3 +7,5 @@
 ## Next goal
 
 Collect training data
+
+Info on data preparation: https://docs.ultralytics.com/datasets/classify/

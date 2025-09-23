@@ -96,4 +96,4 @@ There are two options
     2. Deformation/wrong model
     3. Dirt
 
-2. Which class the image belongs to. This can be a class for good and a class for bad, or more detailed classes. (Classification model)
+2. Which class the image belongs to. This can be a class for good and a class for bad, or more detailed classes like good, bad because dirty, bad because dented or bad because wrong model. (Classification model)

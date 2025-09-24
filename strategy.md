@@ -97,3 +97,14 @@ There are two options
     3. Dirt
 
 2. Which class the image belongs to. This can be a class for good and a class for bad, or more detailed classes like good, bad because dirty, bad because dented or bad because wrong model. (Classification model)
+
+
+
+## Potential accuracty and performance improvements
+
+Adding a bright light at an angle and using multiple cameras from different angles or one camera and one light but make the gas tank rotate to get a full 360 view of it. 
+
+Having a light shine onto the tanks sideways should allow you to see any dents much easier as they would make a higher contrast shadow that would be very easy for an AI model to detect.
+
+It would be possible to use one or more iPhones/Xbox Kinects to generate a depth map of the gas tank using their PrimeSense cameras.
+This would allow a detailed and accurate 3D model to be generated of the gas tank and thus detect dents, dirt or other uneven parts in the surface that aren't easily visible to a camera.

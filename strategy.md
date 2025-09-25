@@ -13,10 +13,11 @@
         Tests
         
     - Existing products?
-        - [YOLO](https://docs.ultralytics.com/models/yolo11/)
+        - [YOLO 11](https://docs.ultralytics.com/models/yolo11/)
+        - [YOLO 12](https://docs.ultralytics.com/models/yolo12/) (new, but no pretrained classification model yet)
         
     - Own Algorithm?
-        - Fine tune of existing models. (transfer learning)
+        - Fine tune of existing models. (Transfer learning)
 
 
     - Potential architectures:
@@ -50,7 +51,7 @@
 - How to evaluate the performance?
     - Measure milliseconds taken to go from image to output.
 
-    From my experience the YOLO11 models easily run realtime on Nvidia hardware and can even run realtime on Intel iGPUs or edge devices by using Intel's own OpenVINO runtime which seems to perform about twice as fast on Intel hardware (60fps from nano up to medium, maybe even larger models).
+    From my experience the YOLO models easily run realtime on Nvidia hardware and can even run realtime on Intel iGPUs or edge devices by using Intel's own OpenVINO runtime which seems to perform about twice as fast on Intel hardware (60fps from nano up to medium, maybe even larger models).
 
 
 - How to keep things practical? (fast development)

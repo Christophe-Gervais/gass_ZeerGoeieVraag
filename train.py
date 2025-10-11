@@ -4,15 +4,15 @@ from ultralytics import YOLO
 
 
 def main():
-    model = YOLO("yolo11x_finetuned_bottles_on_site_v3.pt")
+    model = YOLO("yolo11n.pt")
 
     #Dit traint het model
     model.train(
         data="gasbottle.yaml",
-        epochs=5,
+        epochs=250,
         imgsz=640,
         batch=16,
-        name="gasbottle_yolo11x_finetuned_v3",
+        name="gasbottle_yolo11n_test",
         workers=20,
         device="cuda:0",
     )

@@ -1,6 +1,6 @@
 from ultralytics import YOLO
 
-model = YOLO("runs/detect/gasbottle_yolo11n_test2/weights/best.pt")
+model = YOLO("runs/detect/gasbottle_yolo11m_final/weights/best.pt")
 
 input_video = "videos/14_55_front_cropped.mp4"
 output_video = "runs/detect&trace/gasbottle_yolo11_video_result.mp4"

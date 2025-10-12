@@ -4,7 +4,7 @@ from ultralytics import YOLO
 
 
 def main():
-    model = YOLO("yolo11n.pt")
+    model = YOLO("yolo11m.pt")
 
     #Dit traint het model
     model.train(
@@ -12,7 +12,7 @@ def main():
         epochs=250,
         imgsz=640,
         batch=16,
-        name="gasbottle_yolo11n_test",
+        name="gasbottle_yolo11m_final",
         workers=20,
         device="cuda:0",
     )

@@ -1,5 +1,7 @@
 from ultralytics import YOLO
 import cv2
+from pathlib import Path
+import numpy as np
 
 # https://docs.ultralytics.com/tasks/classify/#predict
 
@@ -10,6 +12,8 @@ SKIP_FRAMES = 5
 MAX_FRAMES = 100
 
 SAVE_VIDEO = False
+
+FPS = 30
 
 if __name__ == '__main__':
     model = YOLO("runs/detect/train11/weights/best.pt")
@@ -22,12 +26,20 @@ if __name__ == '__main__':
     ]
     
     video_path = 'videos/14_55/14_55_front_cropped.mp4'
+    input_path = Path(video_path)
+    output_path = f'runs/detect/track/{input_path.stem}_tracked.mp4'
     
     frame_count = 0
     processed_count = 0
     tracked_objects = {}
     
+    
     cap = cv2.VideoCapture(video_path)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_path, fourcc, FPS, (width, height))
     
     while cap.isOpened():
         ret, frame = cap.read()
@@ -53,4 +65,20 @@ if __name__ == '__main__':
                 print("Track IDs:", track_ids)
                 print("Confidences:", confidences)
                 
+                
+                annotated_frame = result.plot()
+                out.write(annotated_frame)
+                
+                cv2.imshow('Live Tracking Preview', annotated_frame)
+        
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q'):
+                    break
+                elif key == ord('p'):
+                    cv2.waitKey(-1)
+                
         processed_count += 1
+        
+    cap.release()
+    out.release()
+    cv2.destroyAllWindows()

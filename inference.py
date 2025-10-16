@@ -75,6 +75,11 @@ if __name__ == '__main__':
                 print("Track IDs:", track_ids)
                 print("Confidences:", confidences)
                 
+                print("\n--- BOX SIZES ---")
+                for i, box in enumerate(boxes):
+                    x_center, y_center, box_width, box_height = box
+                    box_area = box_width * box_height
+                    print(f"Box {i} (ID: {track_ids[i]}): {box_width:.1f}x{box_height:.1f} pixels, Area: {box_area:.1f} px²")
                 
                 annotated_frame = result.plot()
                 out.write(annotated_frame)

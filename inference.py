@@ -7,6 +7,7 @@ import numpy as np
 
 BATCH_SIZE = 5
 IMAGE_SIZE = 320
+PREVIEW_IMAGE_SIZE = 1080
 
 SKIP_FRAMES = 5
 MAX_FRAMES = 100
@@ -38,8 +39,12 @@ if __name__ == '__main__':
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     
+    aspect_ratio = width / height
+    adjusted_width = int(IMAGE_SIZE * aspect_ratio)
+    adjusted_height = IMAGE_SIZE
+    
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_path, fourcc, FPS, (width, height))
+    out = cv2.VideoWriter(output_path, fourcc, FPS, (adjusted_width, adjusted_height))
     
     while cap.isOpened():
         ret, frame = cap.read()
@@ -50,9 +55,14 @@ if __name__ == '__main__':
         frame_count += 1
         if frame_count % (SKIP_FRAMES + 1) != 0:
             continue
+        
+        small_frame = cv2.resize(frame, (adjusted_width, adjusted_height))
+        
+        # We can preivew on a larger scale if wanted, I'm not gonna implement that yet
+        # preview_frame = cv2.resize(frame, (PREVIEW_IMAGE_SIZE, int(PREVIEW_IMAGE_SIZE / aspect_ratio)))
     
         # results = model.track(frame, conf=0.25, save=True, imgsz=IMAGE_SIZE, batch=BATCH_SIZE, device=0)
-        results = model.track(frame, conf=0.25, persist=True, save=SAVE_VIDEO, imgsz=IMAGE_SIZE, device=0)
+        results = model.track(small_frame, conf=0.25, persist=True, save=SAVE_VIDEO, device=0)
         
         for result in results:
             print(result.boxes)

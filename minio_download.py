@@ -6,7 +6,7 @@ import cv2
 MINIO_URL = "193.191.177.33:22555"
 MINIO_USER = "ai-app-students"
 MINIO_PASSWORD = "ai-app-students-welcome"
-MINIO_BUCKET_NAME = "primagaz-bottles"
+MINIO_BUCKET_NAME = "eyes4rescue"
 
 client = Minio(
     MINIO_URL,

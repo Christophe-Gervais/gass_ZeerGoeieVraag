@@ -1,0 +1,5 @@
+path: ./images/detection/fine_tune_yolo/bottles_on_site/
+train: images/train
+val: images/val
+names:
+  0: bottle

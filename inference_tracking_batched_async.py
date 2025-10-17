@@ -16,13 +16,14 @@ EXTRA_CAMERA_DELAY = 0  # Delay in seconds
 MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 
 # Algorithm options
-IMAGE_SIZE = 320
-BATCH_SIZE = 50
-SKIP_FRAMES = 10 # Skip this many frames between each processing step
-TEMPORAL_CUTOFF_THRESHOLD = 20  # Amount of frames a bottle needs to be seen to be considered tracked.
-BOTTLE_DISAGREEMENT_TOLERANCE = 30  # Amount of frames the cameras can disagree before correction is applied.
-SEQUENTIAL_CORRECTION_THRESHOLD = 3 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
+IMAGE_SIZE = 160
+BATCH_SIZE = 1
+SKIP_FRAMES = 1 # Skip this many frames between each processing step
+TEMPORAL_CUTOFF_THRESHOLD = 6  # Amount of frames a bottle needs to be seen to be considered tracked.
+BOTTLE_DISAGREEMENT_TOLERANCE = 15  # Amount of frames the cameras can disagree before correction is applied.
+SEQUENTIAL_CORRECTION_THRESHOLD = 2 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
 ENFORCE_INCREMENTAL_CORRECTION = False # Make sure the corrected index is unique.
+EXTRA_CORRECTION = True # Allow correcting half the feed if one half disagrees with itself.
 
 # Preview options
 PREVIEW_IMAGE_SIZE = 400
@@ -165,8 +166,7 @@ class Camera:
         
         log(f"I got {len(results)} results?")
         
-        if len(results) > 0:
-            result = results[0]
+        for result in results:
             if result.boxes is not None:
                 boxes = result.boxes.xywh.cpu()
                 self.track_ids = None
@@ -439,7 +439,7 @@ class BottleTracker:
             log("Warning: I can't correct to an index that was used before. Incrementing might skip an index but ensures all indexes link to one bottle.")
             most_common_index = self.last_corrected_index + 1
         
-        if most_common_count > len(self.cameras) / 2:
+        if most_common_count > len(self.cameras) / 2 or (EXTRA_CORRECTION and most_common_count == len(self.cameras) / 2):
             log("Majority agreement found, correcting outcast.")
             self.last_corrected_index = most_common_index
             for camera in self.cameras:

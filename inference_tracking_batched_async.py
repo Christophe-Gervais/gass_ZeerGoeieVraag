@@ -372,7 +372,7 @@ class BottleTracker:
                 sleep_time = min_time_passed - time_passed
                 if sleep_time > 0:
                     queued_frames = camera.get_ready_frames_count()
-                    print(f"I'm being rate limited. {queued_frames} frames are already prepared. Sleeping for {sleep_time} seconds...")
+                    blabber(f"I'm being rate limited. {queued_frames} frames are already prepared. Sleeping for {sleep_time} seconds...")
                     sleep(sleep_time)
             
             self.last_frame_time = time()

@@ -5,6 +5,8 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import Counter
+import threading
+import queue
 
 # Input options
 MODEL_PATH = "runs/detect/train11/weights/best.pt"
@@ -136,9 +138,15 @@ class Camera:
         self.frame_index += 1
         return self.frames[self.frame_index], self.results[self.frame_index]
     
+    async def start_preprocessing(self):
+        while self.preprocess_frames(BATCH_SIZE):
+            blabber(f"Processed a batch of {BATCH_SIZE} images")
+            pass
+    
     def preprocess_frames(self, num_frames: int):
         self.frame_count += num_frames
         new_frames = []
+        finished = False
         for _ in range(num_frames):
             while not self.should_process_frame():
                 blabber("Skipping frame")
@@ -147,11 +155,13 @@ class Camera:
             ret, frame = self.cap.read()
             small_frame = cv2.resize(frame, (self.adjusted_width, self.adjusted_height))
             if not ret:
+                finished = True
                 break
             new_frames.append(small_frame)
         results = self.model.track(new_frames, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
         self.results.extend(results)
         self.frames.extend(new_frames)
+        return finished
 
     def should_process_frame(self):
         blabber(f"I made {self.frame_count} frames.")

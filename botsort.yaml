@@ -1,5 +1,5 @@
-tracker: botsort
+tracker_type: botsort
 max_age: 30          
-min_hits: 3          
+min_hits: 1          
 iou_threshold: 0.3   
 reid: True           

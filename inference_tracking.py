@@ -13,24 +13,22 @@ IMAGE_SIZE = 320
 PREVIEW_IMAGE_SIZE = 400
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
 
-SKIP_FRAMES = 5
-MAX_FRAMES = 1000
+SKIP_FRAMES = 0 # Skip this many frames between each processing step
+
+MAX_FRAMES = 1000 # The amount of frames to process before quitting
 
 SAVE_VIDEO = False
 
-TEMPORAL_CUTOFF_THRESHOLD = 20  # Amount of frames a bottle needs to be seen to be considered tracked
 LAST_WIDTH_COUNT = 3
 
 INPUT_VIDEO_FPS = 60
-# FPS = 30
 
-MODEL_PATH   = "runs/detect/train11/weights/best.pt"
-
+MODEL_PATH = "runs/detect/train11/weights/best.pt"
 VERBOSE = False
 
 EXTRA_CAMERA_DELAY = 0  # seconds
 
-# BOTTLE_REGISTRATION_BLANKING_FRAMES = 2  # frames
+TEMPORAL_CUTOFF_THRESHOLD = 20  # Amount of frames a bottle needs to be seen to be considered tracked
 
 BOTTLE_DISAGREEMENT_TOLERANCE = 30  # frames the cameras can disagree before correction is applied7
 
@@ -98,7 +96,6 @@ class Camera:
         self.model = YOLO(MODEL_PATH)
         self.bottles = {}
         self.bottle_index_counter = start_index
-        # self.start_delay = start_delay
         
         start_delay += EXTRA_CAMERA_DELAY
         frames_to_skip = int(start_delay * self.capture_fps)
@@ -108,6 +105,9 @@ class Camera:
             ret, frame = self.cap.read()
             if not ret:
                 break
+        
+        self.frame_count = 0
+        self.processed_frame_count = 0
         
     def get_frame(self):
         self.frame_count += 1
@@ -137,9 +137,6 @@ class Camera:
             self.bottles[track_id].y = y
             return False
         
-        # if self.frames_since_last_registration < BOTTLE_REGISTRATION_BLANKING_FRAMES:
-        #     return False
-        
         if track_id in self.temporary_bottles:
             self.track_ids_seen[track_id] += 1
             self.temporary_bottles[track_id].x = x
@@ -147,22 +144,17 @@ class Camera:
             if self.track_ids_seen[track_id] >= TEMPORAL_CUTOFF_THRESHOLD / SKIP_FRAMES:
                 bottle = self.temporary_bottles[track_id]
                 self.bottle_index_counter += 1
-                bottle.index = self.bottle_index_counter#len(self.bottles) + 1
+                bottle.index = self.bottle_index_counter
                 self.bottles[track_id] = bottle
                 print("Bottle assigned index:", bottle.index, "Track ID:", track_id, "Camera:", self.name)
-                # print(self.bottles)
                 del self.temporary_bottles[track_id]
                 self.last_registered_bottle = bottle
                 self.last_registered_bottle_track_id = track_id
                 return True
-                # self.frames_since_last_registration 
             return False
         bottle = Bottle(x, y, track_id)
         self.temporary_bottles[track_id] = bottle
         self.track_ids_seen[track_id] = 1
-        
-        
-        # self.frames_since_last_registration += 1
         
         return False
 
@@ -202,6 +194,7 @@ class BottleTracker:
                 ret, frame = camera.get_frame()
                 
                 if camera.processed_frame_count >= MAX_FRAMES or not camera.is_open():
+                    print(f"Done. {camera.processed_frame_count} frames processed.")
                     break
                     
                 if not camera.should_process_frame():
@@ -288,7 +281,7 @@ class BottleTracker:
             
             # Check if all cameras agree with each other on the last bottle index
             last_bottle_indices = set()
-            for camera in cameras:
+            for camera in self.cameras:
                 if camera.last_registered_bottle is not None:
                     last_bottle_indices.add(camera.last_registered_bottle.index)
             
@@ -355,7 +348,7 @@ class BottleTracker:
         if most_common_count > len(self.cameras) / 2:
             print("Majority agreement found, correcting outcast.")
             self.last_corrected_index = most_common_index
-            for camera in cameras:
+            for camera in self.cameras:
                 if camera.last_registered_bottle is not None:
                     print(f"Correcting camera {camera.name} from index {camera.last_registered_bottle.index} to {most_common_index}")
                     if camera.last_registered_bottle.index != most_common_index:
@@ -377,12 +370,11 @@ class BottleTracker:
         except: return True
 
     def release(self):
-        for camera in cameras: camera.release()
+        for camera in self.cameras: camera.release()
         cv2.destroyAllWindows()
 
-if __name__ == '__main__':
-    
-    
+
+def main():
     cameras: list[Camera] = [
         Camera('Front', 'videos/14_55/14_55_front_cropped.mp4', start_delay=0),
         
@@ -393,10 +385,6 @@ if __name__ == '__main__':
     
     bottle_tracker = BottleTracker(cameras)
     bottle_tracker.run()
-    # bottle_tracker.release()
-    
-    # track_ids = []
-    
-    # bottle_was_entering = False
-    # window_was_open = False
-    
+
+if __name__ == '__main__':
+    main()

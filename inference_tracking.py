@@ -108,7 +108,7 @@ class CameraTracker:
         return SKIP_FRAMES > 0 and self.frame_count % (SKIP_FRAMES + 1) == 0
     
     def process_frame(self, frame):
-        small_frame = cv2.resize(frame, (camera.adjusted_width, camera.adjusted_height))
+        small_frame = cv2.resize(frame, (self.adjusted_width, self.adjusted_height))
         results = self.model.track(small_frame, conf=0.25, persist=True, device=0, verbose=VERBOSE)
         return results
     
@@ -173,9 +173,167 @@ class BottleTracker:
     
     def __init__(self, cameras: list[CameraTracker]):
         self.cameras = cameras
+        self.track_ids = []
     
-    
+    def run(self):
+        while True:
+            
+            frames = []
+            
+            for camera_index, camera in enumerate(cameras):
+                # print(f"Camera {camera_index}: {camera.name} - {camera.video_path} Processed: {camera.processed_frame_count}")
+                # w, h = camera.adjusted_width, camera.adjusted_height
+                ret, frame = camera.get_frame()
+                
+                if camera.processed_frame_count >= MAX_FRAMES or not camera.is_open():
+                    break
+                    
+                if not camera.should_process_frame():
+                    continue
+                
+                
+                results = camera.process_frame(frame)
+                
+                output_frame_width = int(PREVIEW_IMAGE_SIZE * camera.aspect_ratio)
+                output_frame_height = PREVIEW_IMAGE_SIZE
+                output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
+                x_scale = output_frame_width / camera.adjusted_width
+                y_scale = output_frame_height / camera.adjusted_height
+                
+                if not ret:
+                    break
+                
+                for result in results:
+                    # annotated_frame = result.plot()
+                        
+                    if result.boxes is not None:
+                        boxes = result.boxes.xywh.cpu()
+                        self.track_ids = None
+                        if result.boxes.id is not None:
+                            self.track_ids = result.boxes.id.cpu().numpy().astype(int)
+                        confidences = result.boxes.conf.cpu()
+                        
+                        # print("Boxes:", boxes)
+                        
+                        # annotated_frame = result.plot()
+                        
+                        cv2.putText(output_frame, 'Camera: ' + camera.name, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                        
+                        for box_index, box in enumerate(boxes):
+                            x_center, y_center, box_width, box_height = box
+                            
+                            if self.track_ids is not None:
+                                track_id = self.track_ids[box_index]
+                                
+                                camera.register_bottle(x_center, y_center, track_id)
+                                
+                                # Render box on frame
+                                scaled_x_center = int(x_center * x_scale)
+                                scaled_y_center = int(y_center * y_scale)
+                                scaled_box_width = int(box_width * x_scale)
+                                scaled_box_height = int(box_height * y_scale)
+                                
+                                x1 = int(scaled_x_center - scaled_box_width / 2)
+                                y1 = int(scaled_y_center - scaled_box_height / 2)
+                                x2 = int(scaled_x_center + scaled_box_width / 2)
+                                y2 = int(scaled_y_center + scaled_box_height / 2)
+                                
+                                # Ensure coordinates are within frame bounds
+                                x1 = max(0, min(x1, output_frame_width - 1))
+                                y1 = max(0, min(y1, output_frame_height - 1))
+                                x2 = max(0, min(x2, output_frame_width - 1))
+                                y2 = max(0, min(y2, output_frame_height - 1))
+                                
+                                thickness = 2
+                                color = (255, 0, 0)
+                                cv2.rectangle(output_frame, (x1, y1), (x2, y2), color, thickness)
+                                
+                                if track_id in camera.bottles:
+                                    # print("This bottle was already seen")
+                                    bottle = camera.bottles[track_id]
+                                    cv2.putText(output_frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                        
+                        frames.append(output_frame)
+                        
+                        if SAVE_VIDEO:
+                            camera.out.write(output_frame)
+                            
+                camera.finish_frame()
+                                
+                                
+            def correct_index_disagreements(cameras: list[CameraTracker]):
+                # Find the most common last registered bottle index among cameras
+                last_indices = []
+                for camera in cameras:
+                    if camera.last_registered_bottle is not None:
+                        last_indices.append(camera.last_registered_bottle.index)
+                
+                if not last_indices:
+                    return
+                
+                from collections import Counter
+                index_counts = Counter(last_indices)
+                most_common_index, most_common_count = index_counts.most_common(1)[0]
+                
+                # Correct cameras that disagree beyond the tolerance
+                for camera in cameras:
+                    if camera.last_registered_bottle is not None:
+                        if abs(camera.last_registered_bottle.index - most_common_index) > BOTTLE_DISAGREEMENT_TOLERANCE:
+                            print(f"Correcting camera {camera.name} from index {camera.last_registered_bottle.index} to {most_common_index}")
+                            camera.last_registered_bottle.index = most_common_index
+            
+            # Check if all cameras agree with each other on the last bottle index
+            last_bottle_indices = set()
+            for camera in cameras:
+                if camera.last_registered_bottle is not None:
+                    last_bottle_indices.add(camera.last_registered_bottle.index)
+            
+            if len(last_bottle_indices) > 1:
+                print("Warning: Cameras disagree on last registered bottle indices:", last_bottle_indices)
+                correct_index_disagreements(cameras)
+                
+            
+            # Display the frame
+            if not len(frames) > 0:
+                continue
+            
+            
+            frame_rows = split_array(frames, 2)
+            row_frames = []
+            for row in frame_rows:
+                while len(row) < 2:
+                    row.append(np.zeros_like(row[0]))
+                row_frame = np.hstack(row)
+                row_frames.append(row_frame)
+            
+            combined_frame = np.vstack(row_frames)
+            
+            
+                
+            if self.window_was_open and is_window_closed(PREVIEW_WINDOW_NAME):
+                print("Window closed, exiting.")
+                break
+                
+            cv2.imshow(PREVIEW_WINDOW_NAME, combined_frame)
+            
+
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+            elif key == ord('p'):
+                cv2.waitKey(-1)
+                
+            self.window_was_open = True
+            
+        print("Finished processing.")
+        self.release()
     pass
+
+    def release(self):
+        for camera in cameras:
+            camera.release()
+            
+        cv2.destroyAllWindows()
 
 if __name__ == '__main__':
     
@@ -188,163 +346,12 @@ if __name__ == '__main__':
         CameraTracker('Top', 'videos/14_55/14_55_top_cropped.mp4', start_delay=4)
     ]
     
-    track_ids = []
+    bottle_tracker = BottleTracker(cameras)
+    bottle_tracker.run()
+    # bottle_tracker.release()
     
-    bottle_was_entering = False
-    window_was_open = False
+    # track_ids = []
     
-    while True:
-        
-        frames = []
-        
-        for camera_index, camera in enumerate(cameras):
-            # print(f"Camera {camera_index}: {camera.name} - {camera.video_path} Processed: {camera.processed_frame_count}")
-            # w, h = camera.adjusted_width, camera.adjusted_height
-            ret, frame = camera.get_frame()
-            
-            if camera.processed_frame_count >= MAX_FRAMES or not camera.is_open():
-                break
-                
-            if not camera.should_process_frame():
-                continue
-            
-            
-            results = camera.process_frame(frame)
-            
-            output_frame_width = int(PREVIEW_IMAGE_SIZE * camera.aspect_ratio)
-            output_frame_height = PREVIEW_IMAGE_SIZE
-            output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
-            x_scale = output_frame_width / camera.adjusted_width
-            y_scale = output_frame_height / camera.adjusted_height
-            
-            if not ret:
-                break
-            
-            for result in results:
-                # annotated_frame = result.plot()
-                    
-                if result.boxes is not None:
-                    boxes = result.boxes.xywh.cpu()
-                    track_ids = None
-                    if result.boxes.id is not None:
-                        track_ids = result.boxes.id.cpu().numpy().astype(int)
-                    confidences = result.boxes.conf.cpu()
-                    
-                    # print("Boxes:", boxes)
-                    
-                    # annotated_frame = result.plot()
-                    
-                    cv2.putText(output_frame, 'Camera: ' + camera.name, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-                    
-                    for box_index, box in enumerate(boxes):
-                        x_center, y_center, box_width, box_height = box
-                        
-                        if track_ids is not None:
-                            track_id = track_ids[box_index]
-                            
-                            camera.register_bottle(x_center, y_center, track_id)
-                            
-                            # Render box on frame
-                            scaled_x_center = int(x_center * x_scale)
-                            scaled_y_center = int(y_center * y_scale)
-                            scaled_box_width = int(box_width * x_scale)
-                            scaled_box_height = int(box_height * y_scale)
-                            
-                            x1 = int(scaled_x_center - scaled_box_width / 2)
-                            y1 = int(scaled_y_center - scaled_box_height / 2)
-                            x2 = int(scaled_x_center + scaled_box_width / 2)
-                            y2 = int(scaled_y_center + scaled_box_height / 2)
-                            
-                            # Ensure coordinates are within frame bounds
-                            x1 = max(0, min(x1, output_frame_width - 1))
-                            y1 = max(0, min(y1, output_frame_height - 1))
-                            x2 = max(0, min(x2, output_frame_width - 1))
-                            y2 = max(0, min(y2, output_frame_height - 1))
-                            
-                            thickness = 2
-                            color = (255, 0, 0)
-                            cv2.rectangle(output_frame, (x1, y1), (x2, y2), color, thickness)
-                            
-                            if track_id in camera.bottles:
-                                # print("This bottle was already seen")
-                                bottle = camera.bottles[track_id]
-                                cv2.putText(output_frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                    
-                    frames.append(output_frame)
-                    
-                    if SAVE_VIDEO:
-                        camera.out.write(output_frame)
-                        
-            camera.finish_frame()
-                            
-                            
-        def correct_index_disagreements(cameras: list[CameraTracker]):
-            # Find the most common last registered bottle index among cameras
-            last_indices = []
-            for camera in cameras:
-                if camera.last_registered_bottle is not None:
-                    last_indices.append(camera.last_registered_bottle.index)
-            
-            if not last_indices:
-                return
-            
-            from collections import Counter
-            index_counts = Counter(last_indices)
-            most_common_index, most_common_count = index_counts.most_common(1)[0]
-            
-            # Correct cameras that disagree beyond the tolerance
-            for camera in cameras:
-                if camera.last_registered_bottle is not None:
-                    if abs(camera.last_registered_bottle.index - most_common_index) > BOTTLE_DISAGREEMENT_TOLERANCE:
-                        print(f"Correcting camera {camera.name} from index {camera.last_registered_bottle.index} to {most_common_index}")
-                        camera.last_registered_bottle.index = most_common_index
-        
-        # Check if all cameras agree with each other on the last bottle index
-        last_bottle_indices = set()
-        for camera in cameras:
-            if camera.last_registered_bottle is not None:
-                last_bottle_indices.add(camera.last_registered_bottle.index)
-        
-        if len(last_bottle_indices) > 1:
-            print("Warning: Cameras disagree on last registered bottle indices:", last_bottle_indices)
-            correct_index_disagreements(cameras)
-            
-        
-        # Display the frame
-        if not len(frames) > 0:
-            continue
-        
-        
-        frame_rows = split_array(frames, 2)
-        row_frames = []
-        for row in frame_rows:
-            while len(row) < 2:
-                row.append(np.zeros_like(row[0]))
-            row_frame = np.hstack(row)
-            row_frames.append(row_frame)
-        
-        combined_frame = np.vstack(row_frames)
-        
-        
-            
-        if window_was_open and is_window_closed(PREVIEW_WINDOW_NAME):
-            print("Window closed, exiting.")
-            break
-            
-        cv2.imshow(PREVIEW_WINDOW_NAME, combined_frame)
-        
-
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):
-            break
-        elif key == ord('p'):
-            cv2.waitKey(-1)
-            
-        window_was_open = True
-                    
-                    
-            
-    for camera in cameras:
-        camera.release()
-        
-    cv2.destroyAllWindows()
+    # bottle_was_entering = False
+    # window_was_open = False
+    

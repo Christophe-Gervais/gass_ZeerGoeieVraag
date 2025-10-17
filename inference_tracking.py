@@ -43,6 +43,7 @@ class Camera:
     adjusted_width: int
     adjusted_height: int
     aspect_ratio: float
+    frame_count: int = 0
     processed_frame_count: int = 0
     model: YOLO
     def __init__(self, name: str, video_path: str):
@@ -65,12 +66,13 @@ class Camera:
         self.model = YOLO(MODEL_PATH)
         
     def get_frame(self):
-        ret, frame = self.cap.read()
-        return (ret, frame)
+        self.frame_count += 1
+        return self.cap.read()
     
     def process_frame(self, frame):
         small_frame = cv2.resize(frame, (camera.adjusted_width, camera.adjusted_height))
         results = self.model.track(small_frame, conf=0.25, persist=True, device=0)
+        return results
     
     def is_open(self):
         return self.cap.isOpened()
@@ -135,13 +137,16 @@ if __name__ == '__main__':
         for i, camera in enumerate(cameras):
             print(f"Camera {i}: {camera.name} - {camera.video_path} Processed: {camera.processed_frame_count}")
             
+            ret, frame = camera.get_frame()
+            
             if camera.processed_frame_count >= MAX_FRAMES or not camera.is_open():
                 break
                 
-            if camera.processed_frame_count % (SKIP_FRAMES + 1) != 0:
+            if camera.frame_count % (SKIP_FRAMES + 1) != 0:
                 continue
             
-            ret, frame, results = camera.get_frame()
+            
+            results = camera.process_frame(frame)
             
             if not ret:
                 break

@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 BATCH_SIZE = 5
 IMAGE_SIZE = 320
-PREVIEW_IMAGE_SIZE = 1080
+PREVIEW_IMAGE_SIZE = 160
 
 SKIP_FRAMES = 5
 MAX_FRAMES = 1000
@@ -155,7 +155,7 @@ if __name__ == '__main__':
         
         for camera_index, camera in enumerate(cameras):
             # print(f"Camera {camera_index}: {camera.name} - {camera.video_path} Processed: {camera.processed_frame_count}")
-            
+            # w, h = camera.adjusted_width, camera.adjusted_height
             ret, frame = camera.get_frame()
             
             if camera.processed_frame_count >= MAX_FRAMES or not camera.is_open():
@@ -167,11 +167,17 @@ if __name__ == '__main__':
             
             results = camera.process_frame(frame)
             
+            output_frame_width = int(PREVIEW_IMAGE_SIZE * camera.aspect_ratio)
+            output_frame_height = PREVIEW_IMAGE_SIZE
+            output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
+            x_scale = output_frame_width / camera.adjusted_width
+            y_scale = output_frame_height / camera.adjusted_height
+            
             if not ret:
                 break
             
             for result in results:
-                annotated_frame = result.plot()
+                # annotated_frame = result.plot()
                     
                 if result.boxes is not None:
                     boxes = result.boxes.xywh.cpu()
@@ -182,26 +188,48 @@ if __name__ == '__main__':
                     
                     # print("Boxes:", boxes)
                     
-                    annotated_frame = result.plot()
+                    # annotated_frame = result.plot()
                     
-                    cv2.putText(annotated_frame, 'Camera: ' + camera.name, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                    cv2.putText(output_frame, 'Camera: ' + camera.name, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
                     
                     for box_index, box in enumerate(boxes):
                         x_center, y_center, box_width, box_height = box
+                        
                         if track_ids is not None:
                             track_id = track_ids[box_index]
                             
                             camera.register_bottle(x_center, y_center, track_id)
                             
+                            # Render box on frame
+                            scaled_x_center = int(x_center * x_scale)
+                            scaled_y_center = int(y_center * y_scale)
+                            scaled_box_width = int(box_width * x_scale)
+                            scaled_box_height = int(box_height * y_scale)
+                            
+                            x1 = int(scaled_x_center - scaled_box_width / 2)
+                            y1 = int(scaled_y_center - scaled_box_height / 2)
+                            x2 = int(scaled_x_center + scaled_box_width / 2)
+                            y2 = int(scaled_y_center + scaled_box_height / 2)
+                            
+                            # Ensure coordinates are within frame bounds
+                            x1 = max(0, min(x1, output_frame_width - 1))
+                            y1 = max(0, min(y1, output_frame_height - 1))
+                            x2 = max(0, min(x2, output_frame_width - 1))
+                            y2 = max(0, min(y2, output_frame_height - 1))
+                            
+                            thickness = 2
+                            color = (255, 0, 0)
+                            cv2.rectangle(output_frame, (x1, y1), (x2, y2), color, thickness)
+                            
                             if track_id in camera.bottles:
                                 # print("This bottle was already seen")
                                 bottle = camera.bottles[track_id]
-                                cv2.putText(annotated_frame, 'ID: ' + str(bottle.index), (int(x_center), int(y_center)), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                                cv2.putText(output_frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                     
-                    frames.append(annotated_frame)
+                    frames.append(output_frame)
                     
                     if SAVE_VIDEO:
-                        camera.out.write(annotated_frame)
+                        camera.out.write(output_frame)
                         
             camera.finish_frame()
                             

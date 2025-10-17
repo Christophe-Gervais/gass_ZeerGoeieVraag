@@ -36,7 +36,7 @@ BOTTLE_DISAGREEMENT_TOLERANCE = 30  # frames the cameras can disagree before cor
 
 ENFORCE_INCREMENTAL_CORRECTION = False # Make sure the corrected index is unique
 
-CORRECTION_PERMANENCE_THRESHOLD = 3 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
+SEQUENTIAL_CORRECTION_THRESHOLD = 3 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
 
 class Bottle:
     index: int = -1
@@ -166,19 +166,12 @@ class Camera:
         
         return False
 
-    def register_correction(self, new_index):
+    def register_correction(self, corrected_index):
         self.sequential_correction_count += 1
-        if self.sequential_correction_count > CORRECTION_PERMANENCE_THRESHOLD:
-            bottle_index_counter = new_index
+        if self.sequential_correction_count > SEQUENTIAL_CORRECTION_THRESHOLD:
+            self.bottle_index_counter = corrected_index
 
-def split_array(arr, max_length):
-    return [arr[i:i + max_length] for i in range(0, len(arr), max_length)] if arr else []
-        
-def is_window_closed(window_name):
-    try:
-        return cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1
-    except:
-        return True
+
     
 
 class BottleTracker:
@@ -376,10 +369,17 @@ class BottleTracker:
         # reset disagreement counts
         self.camera_disagreement_counts = {}
 
-    def release(self):
-        for camera in cameras:
-            camera.release()
+    # Boring functions
+
+    def split_array(arr, max_length):
+        return [arr[i:i + max_length] for i in range(0, len(arr), max_length)] if arr else []
             
+    def is_window_closed(window_name):
+        try: return cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1
+        except: return True
+
+    def release(self):
+        for camera in cameras: camera.release()
         cv2.destroyAllWindows()
 
 if __name__ == '__main__':

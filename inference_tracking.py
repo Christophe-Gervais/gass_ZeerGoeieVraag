@@ -25,6 +25,10 @@ MODEL_PATH   = "runs/detect/train11/weights/best.pt"
 
 VERBOSE = False
 
+EXTRA_CAMERA_DELAY = 0  # seconds
+
+BOTTLE_REGISTRATION_BLANKING_FRAMES = 2  # frames
+
 class Bottle:
     index: int = -1
     x: float
@@ -57,6 +61,8 @@ class CameraTracker:
     bottle_index_counter: int = 0
     # start_delay: float = 0 # seconds
     capture_fps: float
+    frames_since_last_registration: int = 0
+    last_registered_bottle: Bottle = None
     def __init__(self, name: str, video_path: str, start_delay: int = 0, start_index: int = 0):
         self.name = name
         self.video_path = video_path
@@ -82,6 +88,7 @@ class CameraTracker:
         self.bottle_index_counter = start_index
         # self.start_delay = start_delay
         
+        start_delay += EXTRA_CAMERA_DELAY
         frames_to_skip = int(start_delay * self.capture_fps)
         if frames_to_skip > 0:
             print(f"Camera {self.name}: Skipping first {frames_to_skip} frames for start delay of {start_delay} seconds.")
@@ -117,6 +124,10 @@ class CameraTracker:
             self.bottles[track_id].x = x
             self.bottles[track_id].y = y
             return False
+        
+        # if self.frames_since_last_registration < BOTTLE_REGISTRATION_BLANKING_FRAMES:
+        #     return False
+        
         if track_id in self.temporary_bottles:
             self.track_ids_seen[track_id] += 1
             self.temporary_bottles[track_id].x = x
@@ -126,13 +137,18 @@ class CameraTracker:
                 self.bottle_index_counter += 1
                 bottle.index = self.bottle_index_counter#len(self.bottles) + 1
                 self.bottles[track_id] = bottle
-                print("Bottle assigned index:", bottle.index, "Track ID:", track_id)
+                print("Bottle assigned index:", bottle.index, "Track ID:", track_id, "Camera:", self.name)
                 # print(self.bottles)
                 del self.temporary_bottles[track_id]
             return False
         bottle = Bottle(x, y, track_id)
         self.temporary_bottles[track_id] = bottle
         self.track_ids_seen[track_id] = 1
+        
+        
+        self.frames_since_last_registration += 1
+        self.last_registered_bottle = bottle
+        return True
 
 if __name__ == '__main__':
     

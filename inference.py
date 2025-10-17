@@ -20,6 +20,10 @@ LAST_WIDTH_COUNT = 3
 
 FPS = 30
 
+class Bottle:
+    index: int
+    pass
+
 if __name__ == '__main__':
     model = YOLO("runs/detect/train11/weights/best.pt")
     
@@ -52,8 +56,10 @@ if __name__ == '__main__':
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_path, fourcc, FPS, (adjusted_width, adjusted_height))
     
-    boxes = []
+    bottles: list[Bottle] = []
     track_ids = []
+    
+    bottle_was_entering = False
     
     while cap.isOpened():
         ret, frame = cap.read()
@@ -105,14 +111,15 @@ if __name__ == '__main__':
                         print(i)
                         change += last_widths[1 + i] - last_widths[0 + i]
                     
-                    if abs(change) > WIDTH_CHANGE_THRESHOLD:
-                        print("Significant width change detected!")
-                        if change > 0:
+                    if change > WIDTH_CHANGE_THRESHOLD:
+                        if not bottle_was_entering:
                             print("Bottle is entering.")
                             cv2.putText(annotated_frame, 'New bottle entering', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-                        # else:
-                        #     print("Bottle is leaving.")
-                        #     cv2.putText(annotated_frame, 'Bottle exiting', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                            bottle_was_entering = True
+                    else:
+                        bottle_was_entering = False
+                        
+                        
             
             # Displqy the frame
             cv2.imshow('Live Tracking Preview', annotated_frame)

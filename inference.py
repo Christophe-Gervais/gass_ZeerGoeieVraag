@@ -113,7 +113,8 @@ if __name__ == '__main__':
                     cv2.putText(annotated_frame, 'ID: ' + str(len(bottles)), (int(x_center), int(y_center)), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                     # first_bottle_widths.append(float(box_width))k
                 
-                first_bottle_widths.append(float(boxes[0][2]))
+                first_box_x, first_box_y, first_box_width, first_box_height = boxes[0]
+                first_bottle_widths.append(float(first_box_width))
             
                 last_widths = first_bottle_widths[-LAST_WIDTH_COUNT:]
                 print("Last two box widths:", last_widths)
@@ -128,7 +129,7 @@ if __name__ == '__main__':
                             print("Bottle is entering.")
                             cv2.putText(annotated_frame, 'New bottle entering', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
                             bottle_was_entering = True
-                            register_bottle()
+                            register_bottle(first_box_x, first_box_y)
                     else:
                         bottle_was_entering = False
                 
@@ -154,7 +155,7 @@ if __name__ == '__main__':
     plt.xlabel('Frame Number')
     plt.ylabel('Box Width (pixels)')
     plt.grid(True)
-    # plt.savefig('box_widths_over_time.png')
+    plt.savefig('box_widths_over_time.png')
     # plt.show()
         
     cap.release()

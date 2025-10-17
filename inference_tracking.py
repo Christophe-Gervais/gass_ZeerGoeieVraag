@@ -8,14 +8,15 @@ import matplotlib.pyplot as plt
 
 BATCH_SIZE = 5
 IMAGE_SIZE = 320
-PREVIEW_IMAGE_SIZE = 160
+PREVIEW_IMAGE_SIZE = 400
+PREVIEW_WINDOW_NAME = "Live Tracking Preview"
 
 SKIP_FRAMES = 5
 MAX_FRAMES = 1000
 
 SAVE_VIDEO = False
 
-TEMPORAL_CUTOFF_THRESHOLD = 10  # Amount of frames a bottle needs to be seen to be considered tracked
+TEMPORAL_CUTOFF_THRESHOLD = 40  # Amount of frames a bottle needs to be seen to be considered tracked
 LAST_WIDTH_COUNT = 3
 
 INPUT_VIDEO_FPS = 60
@@ -28,6 +29,8 @@ VERBOSE = False
 EXTRA_CAMERA_DELAY = 0  # seconds
 
 BOTTLE_REGISTRATION_BLANKING_FRAMES = 2  # frames
+
+BOTTLE_DISAGREEMENT_TOLERANCE = 2  # indices
 
 class Bottle:
     index: int = -1
@@ -140,15 +143,39 @@ class CameraTracker:
                 print("Bottle assigned index:", bottle.index, "Track ID:", track_id, "Camera:", self.name)
                 # print(self.bottles)
                 del self.temporary_bottles[track_id]
+                self.last_registered_bottle = bottle
+                # self.frames_since_last_registration 
             return False
         bottle = Bottle(x, y, track_id)
         self.temporary_bottles[track_id] = bottle
         self.track_ids_seen[track_id] = 1
         
         
-        self.frames_since_last_registration += 1
-        self.last_registered_bottle = bottle
+        # self.frames_since_last_registration += 1
+        
         return True
+
+def split_array(arr, max_length):
+    return [arr[i:i + max_length] for i in range(0, len(arr), max_length)] if arr else []
+        
+def is_window_closed(window_name):
+    try:
+        return cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1
+    except:
+        return True
+    
+
+class BottleTracker:
+    cameras: list[CameraTracker]
+    track_ids: list[int]
+    bottle_was_entering: bool = False
+    window_was_open: bool = False
+    
+    def __init__(self, cameras: list[CameraTracker]):
+        self.cameras = cameras
+    
+    
+    pass
 
 if __name__ == '__main__':
     
@@ -164,6 +191,7 @@ if __name__ == '__main__':
     track_ids = []
     
     bottle_was_entering = False
+    window_was_open = False
     
     while True:
         
@@ -250,14 +278,42 @@ if __name__ == '__main__':
             camera.finish_frame()
                             
                             
+        def correct_index_disagreements(cameras: list[CameraTracker]):
+            # Find the most common last registered bottle index among cameras
+            last_indices = []
+            for camera in cameras:
+                if camera.last_registered_bottle is not None:
+                    last_indices.append(camera.last_registered_bottle.index)
+            
+            if not last_indices:
+                return
+            
+            from collections import Counter
+            index_counts = Counter(last_indices)
+            most_common_index, most_common_count = index_counts.most_common(1)[0]
+            
+            # Correct cameras that disagree beyond the tolerance
+            for camera in cameras:
+                if camera.last_registered_bottle is not None:
+                    if abs(camera.last_registered_bottle.index - most_common_index) > BOTTLE_DISAGREEMENT_TOLERANCE:
+                        print(f"Correcting camera {camera.name} from index {camera.last_registered_bottle.index} to {most_common_index}")
+                        camera.last_registered_bottle.index = most_common_index
         
+        # Check if all cameras agree with each other on the last bottle index
+        last_bottle_indices = set()
+        for camera in cameras:
+            if camera.last_registered_bottle is not None:
+                last_bottle_indices.add(camera.last_registered_bottle.index)
         
-        # Displqy the frame
+        if len(last_bottle_indices) > 1:
+            print("Warning: Cameras disagree on last registered bottle indices:", last_bottle_indices)
+            correct_index_disagreements(cameras)
+            
+        
+        # Display the frame
         if not len(frames) > 0:
             continue
         
-        def split_array(arr, max_length):
-            return [arr[i:i + max_length] for i in range(0, len(arr), max_length)] if arr else []
         
         frame_rows = split_array(frames, 2)
         row_frames = []
@@ -269,13 +325,22 @@ if __name__ == '__main__':
         
         combined_frame = np.vstack(row_frames)
         
-        cv2.imshow('Live Tracking Preview - ' + camera.name, combined_frame)
+        
+            
+        if window_was_open and is_window_closed(PREVIEW_WINDOW_NAME):
+            print("Window closed, exiting.")
+            break
+            
+        cv2.imshow(PREVIEW_WINDOW_NAME, combined_frame)
+        
 
         key = cv2.waitKey(1) & 0xFF
         if key == ord('q'):
             break
         elif key == ord('p'):
             cv2.waitKey(-1)
+            
+        window_was_open = True
                     
                     
             

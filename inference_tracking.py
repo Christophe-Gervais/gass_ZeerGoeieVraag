@@ -10,27 +10,30 @@ BATCH_SIZE = 5
 IMAGE_SIZE = 320
 PREVIEW_IMAGE_SIZE = 1080
 
-SKIP_FRAMES = 5
+SKIP_FRAMES = 1
 MAX_FRAMES = 1000
 
 SAVE_VIDEO = False
 
-WIDTH_CHANGE_THRESHOLD = 40.0  # pixels
+TEMPORAL_CUTOFF_THRESHOLD = 10  # Amount of frames a bottle needs to be seen to be considered tracked
 LAST_WIDTH_COUNT = 3
 
-FPS = 30
+INPUT_VIDEO_FPS = 60
+# FPS = 30
 
 MODEL_PATH   = "runs/detect/train11/weights/best.pt"
 
 class Bottle:
-    index: int
+    index: int = 0
     x: float
     y: float
     in_view: bool = True
+    yolo_id: int
     
-    def __init__(self, x: float, y: float):
+    def __init__(self, x: float, y: float, yolo_id: int):
         self.x = x
         self.y = y
+        self.yolo_id = yolo_id
 
 class Camera:
     name: str
@@ -46,6 +49,10 @@ class Camera:
     frame_count: int = 0
     processed_frame_count: int = 0
     model: YOLO
+    temporary_bottles: dict[int, Bottle] = {}
+    bottles: dict[int, Bottle] = {}
+    track_ids_seen: dict[int, int] = {}  # Count of frames each track ID has been seen in
+    bottle_index_counter: int = 0
     def __init__(self, name: str, video_path: str):
         self.name = name
         self.video_path = video_path
@@ -61,7 +68,7 @@ class Camera:
         self.adjusted_height = IMAGE_SIZE
         
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        self.out = cv2.VideoWriter(self.output_path, fourcc, FPS, (self.adjusted_width, self.adjusted_height))
+        self.out = cv2.VideoWriter(self.output_path, fourcc, INPUT_VIDEO_FPS / SKIP_FRAMES if SKIP_FRAMES > 0 else 1, (self.adjusted_width, self.adjusted_height))
         
         self.model = YOLO(MODEL_PATH)
         
@@ -83,6 +90,28 @@ class Camera:
     
     def finish_frame(self):
         self.processed_frame_count += 1
+        
+    def register_bottle(self, x, y, track_id):
+        if track_id in self.bottles:
+            self.bottles[track_id].x = x
+            self.bottles[track_id].y = y
+            return False
+        if track_id in self.temporary_bottles:
+            self.track_ids_seen[track_id] += 1
+            self.temporary_bottles[track_id].x = x
+            self.temporary_bottles[track_id].y = y
+            if self.track_ids_seen[track_id] >= TEMPORAL_CUTOFF_THRESHOLD:
+                # bottle_index_counter = len(self.bottles) + 1
+                print("Bottle tracked with ID:", track_id)
+                bottle = self.temporary_bottles[track_id]
+                self.bottle_index_counter += 1
+                bottle.index = self.bottle_index_counter#len(self.bottles) + 1
+                self.bottles[track_id] = bottle
+                del self.temporary_bottles[track_id]
+            return False
+        bottle = Bottle(x, y, track_id)
+        self.temporary_bottles[track_id] = bottle
+        self.track_ids_seen[track_id] = 1
 
 if __name__ == '__main__':
     
@@ -120,13 +149,18 @@ if __name__ == '__main__':
     # fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     # out = cv2.VideoWriter(output_path, fourcc, FPS, (adjusted_width, adjusted_height))
     
-    bottles: list[Bottle] = []
+    # bottles: dict[int, Bottle] = {}
     track_ids = []
     
-    def register_bottle(x, y):
-        bottle = Bottle(x, y)
-        bottle.index = len(bottles) + 1
-        bottles.append(bottle)
+    # def register_bottle(x, y, yolo_id):
+    #     if yolo_id in bottles:
+    #         bottles[yolo_id].x = x
+    #         bottles[yolo_id].y = y
+    #         return False
+    #     bottle = Bottle(x, y, yolo_id)
+    #     bottle.index = len(bottles) + 1
+    #     bottles[yolo_id] = bottle
+        
     
     bottle_was_entering = False
     
@@ -134,8 +168,8 @@ if __name__ == '__main__':
         
         frames = []
         
-        for i, camera in enumerate(cameras):
-            print(f"Camera {i}: {camera.name} - {camera.video_path} Processed: {camera.processed_frame_count}")
+        for camera_index, camera in enumerate(cameras):
+            print(f"Camera {camera_index}: {camera.name} - {camera.video_path} Processed: {camera.processed_frame_count}")
             
             ret, frame = camera.get_frame()
             
@@ -166,13 +200,26 @@ if __name__ == '__main__':
                     
                 if result.boxes is not None:
                     boxes = result.boxes.xywh.cpu()
-                    confidences = result.boxes.conf.cpu()
-                    
-                    print("Boxes:", boxes)
+                    track_ids = None
                     if result.boxes.id is not None:
                         track_ids = result.boxes.id.cpu().numpy().astype(int)
-                        print("Track IDs:", track_ids)
-                    print("Confidences:", confidences)
+                    confidences = result.boxes.conf.cpu()
+                    
+                    # print("Boxes:", boxes)
+                    
+                    for box_index, box in enumerate(boxes):
+                        x_center, y_center, box_width, box_height = box
+                        if track_ids is not None:
+                            track_id = track_ids[box_index]
+                            print("Camera ID:", camera_index,"Track ID: ", track_id)
+                            # register_bottle(x_center, y_center, track_id)
+                            camera.register_bottle(x_center, y_center, track_id)
+                            
+                            if track_id in camera.bottles:
+                                print("This bottle was already seen")
+                                bottle = camera.bottles[track_id]
+                                cv2.putText(annotated_frame, 'ID: ' + str(bottle.index), (int(x_center), int(y_center)), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                        # print("Confidences:", confidences)
                     
                     
                     annotated_frame = result.plot()

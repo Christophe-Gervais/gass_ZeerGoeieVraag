@@ -150,8 +150,7 @@ class Camera:
     
     def _image_processing_worker(self):
         blabber("Starting batch preprocessing.")
-        while True:
-            self.preprocess_frames(BATCH_SIZE)
+        while not self.preprocess_frames(BATCH_SIZE):
             blabber(f"Processed a batch of {BATCH_SIZE} images")
             pass
     

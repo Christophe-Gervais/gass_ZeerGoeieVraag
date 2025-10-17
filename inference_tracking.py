@@ -33,126 +33,134 @@ class Bottle:
 class Camera:
     name: str
     video_path: str
+    output_path: str
+    cap: cv2.VideoCapture
+    out: cv2.VideoWriter
+    width: int
+    height: int
+    aspect_ratio: float
+    def __init__(self, name: str, video_path: str):
+        self.name = name
+        self.video_path = video_path
+        input_path = Path(video_path)
+        self.output_path = f'runs/detect/track/{input_path.stem}_tracked.mp4'
+        
+        self.cap = cv2.VideoCapture(video_path)
+        self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        
+        self.aspect_ratio = width / height
+        adjusted_width = int(IMAGE_SIZE * self.aspect_ratio)
+        adjusted_height = IMAGE_SIZE
+        
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        self.out = cv2.VideoWriter(output_path, fourcc, FPS, (adjusted_width, adjusted_height))
+        
+    def get_frame(self):
+        return self.cap.read()
+    
+    def is_open(self):
+        return self.cap.isOpened()
 
 if __name__ == '__main__':
     model = YOLO("runs/detect/train11/weights/best.pt")
     
     cameras: list[Camera] = [
-        {'name': 'front', 'video_path': 'videos/14_55/14_55_front_cropped.mp4'},
-        {'name': 'back_left', 'video_path': 'videos/14_55/14_55_back_left_cropped.mp4'},
-        {'name': 'back_right', 'video_path': 'videos/14_55/14_55_back_right_cropped.mp4'},
-        {'name': 'back_right', 'video_path': 'videos/14_55/14_55_top_cropped.mp4'}
+        Camera('front', 'videos/14_55/14_55_front_cropped.mp4'),
+        
+        Camera('back_left', 'videos/14_55/14_55_back_left_cropped.mp4'),
+        Camera('back_right', 'videos/14_55/14_55_back_right_cropped.mp4'),
+        # Camera('back_right', 'videos/14_55/14_55_top_cropped.mp4')
     ]
     
     # enumerate the cameras
+    
+
+    # video_path = camera.video_path
+    # input_path = Path(video_path)
+    # output_path = f'runs/detect/track/{input_path.stem}_tracked.mp4'
+    
+    # frame_count = 0
+    # processed_count = 0
+    # tracked_objects = {}
+    
+    # first_bottle_widths = []
+    
+    
+    # cap = cv2.VideoCapture(video_path)
+    # width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    # height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    
+    # aspect_ratio = width / height
+    # adjusted_width = int(IMAGE_SIZE * aspect_ratio)
+    # adjusted_height = IMAGE_SIZE
+    
+    # fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    # out = cv2.VideoWriter(output_path, fourcc, FPS, (adjusted_width, adjusted_height))
+    
+    bottles: list[Bottle] = []
+    track_ids = []
+    
+    def register_bottle(x, y):
+        bottle = Bottle(x, y)
+        bottle.index = len(bottles) + 1
+        bottles.append(bottle)
+    
+    bottle_was_entering = False
+    
     for i, camera in enumerate(cameras):
         print(f"Camera {i}: {camera.name} - {camera.video_path}")
+        
+        if not camera.is_open():
+            break
+        
+        ret, frame = camera.get_frame()
+        
+        if not ret or processed_count >= MAX_FRAMES:
+            break
+            
+        frame_count += 1
+        if frame_count % (SKIP_FRAMES + 1) != 0:
+            continue
+        
+        small_frame = cv2.resize(frame, (adjusted_width, adjusted_height))
+        
+        # We can preivew on a larger scale if wanted, I'm not gonna implement that yet
+        # preview_frame = cv2.resize(frame, (PREVIEW_IMAGE_SIZE, int(PREVIEW_IMAGE_SIZE / aspect_ratio)))
     
-        video_path = camera.video_path
-        input_path = Path(video_path)
-        output_path = f'runs/detect/track/{input_path.stem}_tracked.mp4'
+        results = model.track(small_frame, conf=0.25, persist=True, device=0)
         
-        frame_count = 0
-        processed_count = 0
-        tracked_objects = {}
-        
-        first_bottle_widths = []
-        
-        
-        cap = cv2.VideoCapture(video_path)
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        
-        aspect_ratio = width / height
-        adjusted_width = int(IMAGE_SIZE * aspect_ratio)
-        adjusted_height = IMAGE_SIZE
-        
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, FPS, (adjusted_width, adjusted_height))
-        
-        bottles: list[Bottle] = []
-        track_ids = []
-        
-        def register_bottle(x, y):
-            bottle = Bottle(x, y)
-            bottle.index = len(bottles) + 1
-            bottles.append(bottle)
-        
-        bottle_was_entering = False
-        
-        while cap.isOpened():
-            ret, frame = cap.read()
-            
-            if not ret or processed_count >= MAX_FRAMES:
-                break
+        for result in results:
+            # print(result.boxes)
+            annotated_frame = result.plot()
+            camera.out.write(annotated_frame)
                 
-            frame_count += 1
-            if frame_count % (SKIP_FRAMES + 1) != 0:
-                continue
-            
-            small_frame = cv2.resize(frame, (adjusted_width, adjusted_height))
-            
-            # We can preivew on a larger scale if wanted, I'm not gonna implement that yet
-            # preview_frame = cv2.resize(frame, (PREVIEW_IMAGE_SIZE, int(PREVIEW_IMAGE_SIZE / aspect_ratio)))
-        
-            results = model.track(small_frame, conf=0.25, persist=True, device=0)
-            
-            for result in results:
-                # print(result.boxes)
+            if result.boxes is not None and result.boxes.id is not None:
+                boxes = result.boxes.xywh.cpu()
+                track_ids = result.boxes.id.cpu().numpy().astype(int)
+                confidences = result.boxes.conf.cpu()
+                
+                print("Boxes:", boxes)
+                print("Track IDs:", track_ids)
+                print("Confidences:", confidences)
+                
+                
                 annotated_frame = result.plot()
-                out.write(annotated_frame)
-                    
-                if result.boxes is not None and len(result.boxes) > 0:
-                    boxes = result.boxes.xywh.cpu()
-                    confidences = result.boxes.conf.cpu()
-                    
-                    print("Boxes:", boxes)
-                    print("Confidences:", confidences)
-                    
-                    
-                    
-                    print("\n--- BOX SIZES ---")
-                    for i, box in enumerate(boxes):
-                        x_center, y_center, box_width, box_height = box
-                        box_area = box_width * box_height
-                        print(f"Box {i} (ID: {len(bottles)}): {box_width:.1f}x{box_height:.1f} pixels, Area: {box_area:.1f} px²")
-                        cv2.putText(annotated_frame, 'ID: ' + str(len(bottles)), (int(x_center), int(y_center)), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                        # first_bottle_widths.append(float(box_width))k
-                    
-                    first_box_x, first_box_y, first_box_width, first_box_height = boxes[0]
-                    first_bottle_widths.append(float(first_box_width))
-                
-                    last_widths = first_bottle_widths[-LAST_WIDTH_COUNT:]
-                    print("Last two box widths:", last_widths)
-                    if len(last_widths) == LAST_WIDTH_COUNT:
-                        change = 0
-                        for i in range(0, LAST_WIDTH_COUNT - 1):
-                            print(i)
-                            change += last_widths[1 + i] - last_widths[0 + i]
+                camera.out.write(annotated_frame)
                         
-                        if change > WIDTH_CHANGE_THRESHOLD:
-                            if not bottle_was_entering:
-                                print("Bottle is entering.")
-                                cv2.putText(annotated_frame, 'New bottle entering', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-                                bottle_was_entering = True
-                                register_bottle(first_box_x, first_box_y)
-                        else:
-                            bottle_was_entering = False
-                    
-                            
+            
+            # Displqy the frame
+            cv2.imshow('Live Tracking Preview - ' + camera.name, annotated_frame)
+    
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+            elif key == ord('p'):
+                cv2.waitKey(-1)
                 
-                # Displqy the frame
-                cv2.imshow('Live Tracking Preview', annotated_frame)
-        
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord('q'):
-                    break
-                elif key == ord('p'):
-                    cv2.waitKey(-1)
-                    
-                    
-                    
-            processed_count += 1
+                
+                
+        processed_count += 1
         
     # Plot box widths
     plt.figure(figsize=(10, 6))

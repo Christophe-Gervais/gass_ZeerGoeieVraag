@@ -3,6 +3,8 @@ import cv2
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
+from collections import Counter
+
 
 # https://docs.ultralytics.com/tasks/classify/#predict
 
@@ -16,7 +18,7 @@ MAX_FRAMES = 1000
 
 SAVE_VIDEO = False
 
-TEMPORAL_CUTOFF_THRESHOLD = 40  # Amount of frames a bottle needs to be seen to be considered tracked
+TEMPORAL_CUTOFF_THRESHOLD = 20  # Amount of frames a bottle needs to be seen to be considered tracked
 LAST_WIDTH_COUNT = 3
 
 INPUT_VIDEO_FPS = 60
@@ -28,9 +30,9 @@ VERBOSE = False
 
 EXTRA_CAMERA_DELAY = 0  # seconds
 
-BOTTLE_REGISTRATION_BLANKING_FRAMES = 2  # frames
+# BOTTLE_REGISTRATION_BLANKING_FRAMES = 2  # frames
 
-BOTTLE_DISAGREEMENT_TOLERANCE = 2  # indices
+BOTTLE_DISAGREEMENT_TOLERANCE = 20  # frames
 
 class Bottle:
     index: int = -1
@@ -44,7 +46,7 @@ class Bottle:
         self.y = y
         self.yolo_id = yolo_id
 
-class CameraTracker:
+class Camera:
     name: str
     video_path: str
     output_path: str
@@ -66,6 +68,7 @@ class CameraTracker:
     capture_fps: float
     frames_since_last_registration: int = 0
     last_registered_bottle: Bottle = None
+    last_registered_bottle_track_id: int = -1
     def __init__(self, name: str, video_path: str, start_delay: int = 0, start_index: int = 0):
         self.name = name
         self.video_path = video_path
@@ -144,6 +147,7 @@ class CameraTracker:
                 # print(self.bottles)
                 del self.temporary_bottles[track_id]
                 self.last_registered_bottle = bottle
+                self.last_registered_bottle_track_id = track_id
                 # self.frames_since_last_registration 
             return False
         bottle = Bottle(x, y, track_id)
@@ -166,12 +170,15 @@ def is_window_closed(window_name):
     
 
 class BottleTracker:
-    cameras: list[CameraTracker]
+    cameras: list[Camera]
     track_ids: list[int]
     bottle_was_entering: bool = False
     window_was_open: bool = False
     
-    def __init__(self, cameras: list[CameraTracker]):
+    camera_disagreement_counts: dict[int, int] = {}
+    last_disagreement_index: int = -1
+    
+    def __init__(self, cameras: list[Camera]):
         self.cameras = cameras
         self.track_ids = []
     
@@ -180,7 +187,7 @@ class BottleTracker:
             
             frames = []
             
-            for camera_index, camera in enumerate(cameras):
+            for camera_index, camera in enumerate(self.cameras):
                 # print(f"Camera {camera_index}: {camera.name} - {camera.video_path} Processed: {camera.processed_frame_count}")
                 # w, h = camera.adjusted_width, camera.adjusted_height
                 ret, frame = camera.get_frame()
@@ -261,26 +268,7 @@ class BottleTracker:
                 camera.finish_frame()
                                 
                                 
-            def correct_index_disagreements(cameras: list[CameraTracker]):
-                # Find the most common last registered bottle index among cameras
-                last_indices = []
-                for camera in cameras:
-                    if camera.last_registered_bottle is not None:
-                        last_indices.append(camera.last_registered_bottle.index)
-                
-                if not last_indices:
-                    return
-                
-                from collections import Counter
-                index_counts = Counter(last_indices)
-                most_common_index, most_common_count = index_counts.most_common(1)[0]
-                
-                # Correct cameras that disagree beyond the tolerance
-                for camera in cameras:
-                    if camera.last_registered_bottle is not None:
-                        if abs(camera.last_registered_bottle.index - most_common_index) > BOTTLE_DISAGREEMENT_TOLERANCE:
-                            print(f"Correcting camera {camera.name} from index {camera.last_registered_bottle.index} to {most_common_index}")
-                            camera.last_registered_bottle.index = most_common_index
+            
             
             # Check if all cameras agree with each other on the last bottle index
             last_bottle_indices = set()
@@ -289,8 +277,11 @@ class BottleTracker:
                     last_bottle_indices.add(camera.last_registered_bottle.index)
             
             if len(last_bottle_indices) > 1:
-                print("Warning: Cameras disagree on last registered bottle indices:", last_bottle_indices)
-                correct_index_disagreements(cameras)
+                print("Warning: Cameras disagree on last registered bottle indices:", last_bottle_indices, "Camera number:", camera_index)
+                self.camera_disagreement_counts[camera_index] = self.camera_disagreement_counts.get(camera_index, 0) + 1
+                
+                if self.camera_disagreement_counts[camera_index] >= BOTTLE_DISAGREEMENT_TOLERANCE:
+                    self.correct_index_disagreements()
                 
             
             # Display the frame
@@ -327,7 +318,32 @@ class BottleTracker:
             
         print("Finished processing.")
         self.release()
-    pass
+        
+    def correct_index_disagreements(self):
+        # Find the most common last registered bottle index among cameras
+        print("Correcting index disagreements among cameras.")
+        last_indices = []
+        for camera in self.cameras:
+            if camera.last_registered_bottle is not None:
+                last_indices.append(camera.last_registered_bottle.index)
+        print("Last registered bottle indices from cameras:", last_indices)
+        if not last_indices:
+            return
+        
+        index_counts = Counter(last_indices)
+        most_common_index, most_common_count = index_counts.most_common(1)[0]
+        
+        print(f"Most common last registered bottle index is {most_common_index} seen {most_common_count} times.")
+        
+        if most_common_count > len(self.cameras) / 2:
+            print("Majority agreement found, correcting outcast.")
+            for camera in cameras:
+                if camera.last_registered_bottle is not None:
+                    print(f"Correcting camera {camera.name} from index {camera.last_registered_bottle.index} to {most_common_index}")
+                    camera.last_registered_bottle.index = most_common_index
+        
+        # reset disagreement counts
+        self.camera_disagreement_counts = {}
 
     def release(self):
         for camera in cameras:
@@ -338,12 +354,12 @@ class BottleTracker:
 if __name__ == '__main__':
     
     
-    cameras: list[CameraTracker] = [
-        CameraTracker('Front', 'videos/14_55/14_55_front_cropped.mp4', start_delay=0),
+    cameras: list[Camera] = [
+        Camera('Front', 'videos/14_55/14_55_front_cropped.mp4', start_delay=0),
         
-        CameraTracker('Back Left', 'videos/14_55/14_55_back_left_cropped.mp4', start_delay=2),
-        CameraTracker('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_delay=1, start_index=-1),
-        CameraTracker('Top', 'videos/14_55/14_55_top_cropped.mp4', start_delay=4)
+        Camera('Back Left', 'videos/14_55/14_55_back_left_cropped.mp4', start_delay=2),
+        Camera('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_delay=1, start_index=-1),
+        Camera('Top', 'videos/14_55/14_55_top_cropped.mp4', start_delay=4)
     ]
     
     bottle_tracker = BottleTracker(cameras)

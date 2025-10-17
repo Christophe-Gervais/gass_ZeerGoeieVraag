@@ -30,7 +30,7 @@ PREVIEW_IMAGE_SIZE = 400
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
 EASE_DISPLAY_SPEED = True
-DISPLAY_FRAMERATE = 30
+DISPLAY_FRAMERATE = 60
 MAX_QUEUE_SIZE = 200 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 1 # Amount of seconds to wait when queue is full
 
@@ -150,13 +150,6 @@ class Camera:
     
     def render_frame(self):
         frame, results = self.get_frame()
-                
-        
-            
-        
-        
-        
-        # results = camera.get_frame_results(frame)
         
         output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
         output_frame_height = PREVIEW_IMAGE_SIZE
@@ -164,7 +157,7 @@ class Camera:
         x_scale = output_frame_width / self.adjusted_width
         y_scale = output_frame_height / self.adjusted_height
         
-        log(f"I got {len(results)} results?")
+        blabber(f"I got {len(results)} results? Yes bru")
         
         for result in results:
             if result.boxes is not None:

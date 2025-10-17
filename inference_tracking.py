@@ -221,18 +221,11 @@ class BottleTracker:
                     break
                 
                 for result in results:
-                    # annotated_frame = result.plot()
-                        
                     if result.boxes is not None:
                         boxes = result.boxes.xywh.cpu()
                         self.track_ids = None
                         if result.boxes.id is not None:
                             self.track_ids = result.boxes.id.cpu().numpy().astype(int)
-                        confidences = result.boxes.conf.cpu()
-                        
-                        # log("Boxes:", boxes)
-                        
-                        # annotated_frame = result.plot()
                         
                         cv2.putText(output_frame, 'Camera: ' + camera.name, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
                         
@@ -284,9 +277,6 @@ class BottleTracker:
                             
                 camera.finish_frame()
                                 
-                                
-            
-            
             # Check if all cameras agree with each other on the last bottle index
             last_bottle_indices = set()
             for camera in self.cameras:

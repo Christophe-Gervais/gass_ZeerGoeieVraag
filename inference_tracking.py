@@ -5,38 +5,27 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import Counter
 
-
-# https://docs.ultralytics.com/tasks/classify/#predict
-
-BATCH_SIZE = 5
-IMAGE_SIZE = 320
-
-
-SKIP_FRAMES = 0 # Skip this many frames between each processing step
-
+# Input options
+MODEL_PATH = "runs/detect/train11/weights/best.pt"
+INPUT_VIDEO_FPS = 60
+EXTRA_CAMERA_DELAY = 0  # Delay in seconds
 MAX_FRAMES = 1000 # The amount of frames to process before quitting
 
-SAVE_VIDEO = False
-
-LAST_WIDTH_COUNT = 3
-
-INPUT_VIDEO_FPS = 60
-
-MODEL_PATH = "runs/detect/train11/weights/best.pt"
-
-
+# Algorithm options
+IMAGE_SIZE = 320
+BATCH_SIZE = 5
+SKIP_FRAMES = 0 # Skip this many frames between each processing step
 TEMPORAL_CUTOFF_THRESHOLD = 20  # Amount of frames a bottle needs to be seen to be considered tracked.
 BOTTLE_DISAGREEMENT_TOLERANCE = 30  # Amount of frames the cameras can disagree before correction is applied.
 SEQUENTIAL_CORRECTION_THRESHOLD = 3 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
 ENFORCE_INCREMENTAL_CORRECTION = False # Make sure the corrected index is unique.
 
-EXTRA_CAMERA_DELAY = 0  # Delay in seconds
-
 # Preview options
 PREVIEW_IMAGE_SIZE = 400
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
+SAVE_VIDEO = False
 
-# Logging parameters
+# Logging options
 VERBOSE_YOLO = False
 VERBOSE_LOGS = True
 

@@ -20,6 +20,8 @@ LAST_WIDTH_COUNT = 3
 
 FPS = 30
 
+MODEL_PATH   = "runs/detect/train11/weights/best.pt"
+
 class Bottle:
     index: int
     x: float
@@ -42,6 +44,7 @@ class Camera:
     adjusted_height: int
     aspect_ratio: float
     processed_frame_count: int = 0
+    model: YOLO
     def __init__(self, name: str, video_path: str):
         self.name = name
         self.video_path = video_path
@@ -59,8 +62,15 @@ class Camera:
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         self.out = cv2.VideoWriter(self.output_path, fourcc, FPS, (self.adjusted_width, self.adjusted_height))
         
+        self.model = YOLO(MODEL_PATH)
+        
     def get_frame(self):
-        return self.cap.read()
+        ret, frame = self.cap.read()
+        return (ret, frame)
+    
+    def process_frame(self, frame):
+        small_frame = cv2.resize(frame, (camera.adjusted_width, camera.adjusted_height))
+        results = self.model.track(small_frame, conf=0.25, persist=True, device=0)
     
     def is_open(self):
         return self.cap.isOpened()
@@ -73,7 +83,7 @@ class Camera:
         self.processed_frame_count += 1
 
 if __name__ == '__main__':
-    model = YOLO("runs/detect/train11/weights/best.pt")
+    
     
     cameras: list[Camera] = [
         Camera('front', 'videos/14_55/14_55_front_cropped.mp4'),
@@ -119,59 +129,73 @@ if __name__ == '__main__':
     bottle_was_entering = False
     
     while True:
+        
+        frames = []
+        
         for i, camera in enumerate(cameras):
-            print(f"Camera {i}: {camera.name} - {camera.video_path}")
+            print(f"Camera {i}: {camera.name} - {camera.video_path} Processed: {camera.processed_frame_count}")
             
-            if not camera.is_open():
-                break
-            
-            ret, frame = camera.get_frame()
-            
-            if not ret or camera.processed_frame_count >= MAX_FRAMES:
+            if camera.processed_frame_count >= MAX_FRAMES or not camera.is_open():
                 break
                 
             if camera.processed_frame_count % (SKIP_FRAMES + 1) != 0:
                 continue
             
-            small_frame = cv2.resize(frame, (camera.adjusted_width, camera.adjusted_height))
+            ret, frame, results = camera.get_frame()
+            
+            if not ret:
+                break
+            
+            # small_frame = cv2.resize(frame, (camera.adjusted_width, camera.adjusted_height))
             
             # We can preivew on a larger scale if wanted, I'm not gonna implement that yet
             # preview_frame = cv2.resize(frame, (PREVIEW_IMAGE_SIZE, int(PREVIEW_IMAGE_SIZE / aspect_ratio)))
         
-            results = model.track(small_frame, conf=0.25, persist=True, device=0)
+            # results = model.track(small_frame, conf=0.25, persist=True, device=0)
             
             for result in results:
                 # print(result.boxes)
                 annotated_frame = result.plot()
-                camera.out.write(annotated_frame)
+                frames.append(annotated_frame)
+                # camera.out.write(annotated_frame)
                     
-                if result.boxes is not None and result.boxes.id is not None:
+                if result.boxes is not None:
                     boxes = result.boxes.xywh.cpu()
-                    track_ids = result.boxes.id.cpu().numpy().astype(int)
                     confidences = result.boxes.conf.cpu()
                     
                     print("Boxes:", boxes)
-                    print("Track IDs:", track_ids)
+                    if result.boxes.id is not None:
+                        track_ids = result.boxes.id.cpu().numpy().astype(int)
+                        print("Track IDs:", track_ids)
                     print("Confidences:", confidences)
                     
                     
                     annotated_frame = result.plot()
                     camera.out.write(annotated_frame)
-                            
-                
-                # Displqy the frame
-                cv2.imshow('Live Tracking Preview - ' + camera.name, annotated_frame)
-        
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord('q'):
-                    break
-                elif key == ord('p'):
-                    cv2.waitKey(-1)
                     
                     
                     
             # processed_count += 1
             camera.finish_frame()
+                            
+                            
+        
+        
+        # Displqy the frame
+        if not len(frames) > 0:
+            continue
+        
+        combined_frame = np.hstack(frames)
+        
+        cv2.imshow('Live Tracking Preview - ' + camera.name, combined_frame)
+
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            break
+        elif key == ord('p'):
+            cv2.waitKey(-1)
+                    
+                    
             
     for camera in cameras:
         camera.release()

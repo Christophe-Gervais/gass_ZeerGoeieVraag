@@ -79,8 +79,8 @@ class Camera:
     last_registered_bottle_track_id: int = -1
     sequential_correction_count: int = 0
     
-    frames: list[cv2.typing.MatLike]
-    results: list
+    # frames: list[cv2.typing.MatLike]
+    # result_queue: list
     frame_index: int
     
     def get_allowed_frame_skip(self):
@@ -127,21 +127,39 @@ class Camera:
         self.model = YOLO(MODEL_PATH)
         blabber("Finished loading model!")
         
-        self.frames = []
-        self.results = []
+        self.results_queue = queue.Queue()
+        self.frame_queue: queue.Queue[cv2.typing.MatLike] = queue.Queue()
         self.frame_index = 0
+        self.running = False
+        self.producer_thread = None
         
     def get_frame(self):
-        if self.frame_index + 1 >= len(self.frames):
-            self.preprocess_frames(BATCH_SIZE)
+        try:
+            frame = self.frame_queue.get()
+            results = self.results_queue.get()
+            return frame, results
+        except queue.Empty:
+            return None
         
-        self.frame_index += 1
-        return self.frames[self.frame_index], self.results[self.frame_index]
+        # As
     
-    async def start_preprocessing(self):
+    def _image_processing_worker(self):
         while self.preprocess_frames(BATCH_SIZE):
             blabber(f"Processed a batch of {BATCH_SIZE} images")
             pass
+    
+    def start_preprocessing(self):
+        self.running = True
+        self.producer_thread = threading.Thread(target=self._image_processing_worker)
+        self.producer_thread.daemon = True
+        self.producer_thread.start()
+        print("Background producer started")
+    
+    def stop_preprocessing(self):
+        self.running = False
+        if self.producer_thread:
+            self.producer_thread.join(timeout=5)
+        print("Background producer stopped")    
     
     def preprocess_frames(self, num_frames: int):
         self.frame_count += num_frames
@@ -158,9 +176,11 @@ class Camera:
                 finished = True
                 break
             new_frames.append(small_frame)
-        results = self.model.track(new_frames, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
-        self.results.extend(results)
-        self.frames.extend(new_frames)
+        resultses = self.model.track(new_frames, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
+        for results in resultses:
+            self.results_queue.put(results)
+        for frame in new_frames:
+            self.frame_queue.put(frame)
         return finished
 
     def should_process_frame(self):

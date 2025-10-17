@@ -17,7 +17,7 @@ MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 
 # Algorithm options
 IMAGE_SIZE = 160
-BATCH_SIZE = 1
+BATCH_SIZE = 100
 SKIP_FRAMES = 1 # Skip this many frames between each processing step
 TEMPORAL_CUTOFF_THRESHOLD = 6  # Amount of frames a bottle needs to be seen to be considered tracked.
 BOTTLE_DISAGREEMENT_TOLERANCE = 15  # Amount of frames the cameras can disagree before correction is applied.
@@ -30,8 +30,8 @@ PREVIEW_IMAGE_SIZE = 400
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
 EASE_DISPLAY_SPEED = True
-DISPLAY_FRAMERATE = 60
-MAX_QUEUE_SIZE = 200 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
+DISPLAY_FRAMERATE = 15
+MAX_QUEUE_SIZE = 100 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 1 # Amount of seconds to wait when queue is full
 
 # Logging options
@@ -153,7 +153,7 @@ class Camera:
         
         output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
         output_frame_height = PREVIEW_IMAGE_SIZE
-        output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
+        # output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
         x_scale = output_frame_width / self.adjusted_width
         y_scale = output_frame_height / self.adjusted_height
         
@@ -166,7 +166,7 @@ class Camera:
                 if result.boxes.id is not None:
                     self.track_ids = result.boxes.id.cpu().numpy().astype(int)
                 
-                cv2.putText(output_frame, 'Camera: ' + self.name, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                cv2.putText(frame, 'Camera: ' + self.name, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
                 
                 for box_index, box in enumerate(boxes):
                     x_center, y_center, box_width, box_height = box
@@ -196,10 +196,10 @@ class Camera:
                         
                         thickness = 2
                         color = (255, 0, 0)
-                        cv2.rectangle(output_frame, (x1, y1), (x2, y2), color, thickness)
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
                         
                         def draw_bottle_id(color):
-                            cv2.putText(output_frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+                            cv2.putText(frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
                             
                         
                         if track_id in self.temporary_bottles:
@@ -209,10 +209,10 @@ class Camera:
                             bottle = self.bottles[track_id]
                             draw_bottle_id((255, 255, 0) if bottle.was_corrected else (0, 255, 0))
                 
-                self.last_output_frame = output_frame
+                self.last_output_frame = frame
                 
                 if SAVE_VIDEO:
-                    self.out.write(output_frame)
+                    self.out.write(frame)
                     
         self.finish_frame()
         return self.last_output_frame
@@ -248,7 +248,8 @@ class Camera:
                 sleep(QUEUE_SIZE_CHECK_INTERVAL)
         
         self.frame_count += num_frames
-        new_frames = []
+        inference_frames = []
+        output_frames = []
         finished = False
         for _ in range(num_frames):
             while not self.should_process_frame():
@@ -256,15 +257,21 @@ class Camera:
                 self.frame_count += 1
                 self.cap.read()
             ret, frame = self.cap.read()
-            small_frame = cv2.resize(frame, (self.adjusted_width, self.adjusted_height))
+            inference = cv2.resize(frame, (self.adjusted_width, self.adjusted_height))
+            
+            output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
+            output_frame_height = PREVIEW_IMAGE_SIZE
+            output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
+            
             if not ret:
                 finished = True
                 break
-            new_frames.append(small_frame)
-        resultses = self.model.track(new_frames, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
+            inference_frames.append(inference)
+            output_frames.append(output_frame)
+        resultses = self.model.track(inference_frames, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
         for results in resultses:
             self.results_queue.put(results)
-        for frame in new_frames:
+        for frame in output_frames:
             self.frame_queue.put(frame)
         return finished
 

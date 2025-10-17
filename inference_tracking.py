@@ -14,7 +14,7 @@ MAX_FRAMES = 1000 # The amount of frames to process before quitting
 # Algorithm options
 IMAGE_SIZE = 320
 BATCH_SIZE = 5
-SKIP_FRAMES = 0 # Skip this many frames between each processing step
+SKIP_FRAMES = 10 # Skip this many frames between each processing step
 TEMPORAL_CUTOFF_THRESHOLD = 20  # Amount of frames a bottle needs to be seen to be considered tracked.
 BOTTLE_DISAGREEMENT_TOLERANCE = 30  # Amount of frames the cameras can disagree before correction is applied.
 SEQUENTIAL_CORRECTION_THRESHOLD = 3 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
@@ -28,10 +28,15 @@ SAVE_VIDEO = False
 # Logging options
 VERBOSE_YOLO = False
 VERBOSE_LOGS = True
+VERBOSE_BLAB = False
 
-def log(message: str):
+def log(*values: object, **kwargs):
     if not VERBOSE_LOGS: return
-    print(message)
+    print(*values, *kwargs)
+    
+def blabber(*values: object, **kwargs):
+    if not VERBOSE_BLAB: return
+    print(*values, *kwargs)
 
 class Bottle:
     index: int = -1
@@ -57,7 +62,7 @@ class Camera:
     adjusted_width: int
     adjusted_height: int
     aspect_ratio: float
-    frame_count: int = 0
+    frame_count: int
     processed_frame_count: int = 0
     model: YOLO
     temporary_bottles: dict[int, Bottle] = {}
@@ -70,6 +75,10 @@ class Camera:
     last_registered_bottle: Bottle = None
     last_registered_bottle_track_id: int = -1
     sequential_correction_count: int = 0
+    
+    def get_allowed_frame_skip(self):
+        return SKIP_FRAMES if SKIP_FRAMES > 0 else 1
+    
     def __init__(self, name: str, video_path: str, start_delay: int = 0, start_index: int = 0):
         self.name = name
         self.video_path = video_path
@@ -89,7 +98,7 @@ class Camera:
         if SAVE_VIDEO:
             self.output_path = f'runs/detect/track/{input_path.stem}_tracked.mp4'
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            self.out = cv2.VideoWriter(self.output_path, fourcc, self.capture_fps / SKIP_FRAMES if SKIP_FRAMES > 0 else 1, (self.adjusted_width, self.adjusted_height))
+            self.out = cv2.VideoWriter(self.output_path, fourcc, self.capture_fps / self.get_allowed_frame_skip(), (self.adjusted_width, self.adjusted_height))
         
         self.bottles = {}
         self.bottle_index_counter = start_index
@@ -97,26 +106,27 @@ class Camera:
         start_delay += EXTRA_CAMERA_DELAY
         frames_to_skip = int(start_delay * self.capture_fps)
         if frames_to_skip > 0:
-            print(f"Camera {self.name}: Skipping first {frames_to_skip} frames for start delay of {start_delay} seconds.")
+            log(f"Camera {self.name}: Skipping first {frames_to_skip} frames for start delay of {start_delay} seconds.")
             for _ in range(frames_to_skip):
                 ret, frame = self.cap.read()
                 if not ret:
                     break
-            print("Finished skipping frames.")
+            blabber("Finished skipping frames.")
         
         self.frame_count = 0
         self.processed_frame_count = 0
         
-        print("Finished camera setup. Loading model...")
+        blabber("Finished camera setup. Loading model...")
         self.model = YOLO(MODEL_PATH)
-        print("Finished loading model!")
+        blabber("Finished loading model!")
         
     def get_frame(self):
         self.frame_count += 1
         return self.cap.read()
 
     def should_process_frame(self):
-        return SKIP_FRAMES > 0 and self.frame_count % (SKIP_FRAMES + 1) == 0
+        blabber(f"I made {self.frame_count} frames.")
+        return self.frame_count % (SKIP_FRAMES + 1) == 0 if SKIP_FRAMES > 0 else True
     
     def process_frame(self, frame):
         small_frame = cv2.resize(frame, (self.adjusted_width, self.adjusted_height))
@@ -143,12 +153,12 @@ class Camera:
             self.track_ids_seen[track_id] += 1
             self.temporary_bottles[track_id].x = x
             self.temporary_bottles[track_id].y = y
-            if self.track_ids_seen[track_id] >= TEMPORAL_CUTOFF_THRESHOLD / SKIP_FRAMES:
+            if self.track_ids_seen[track_id] >= TEMPORAL_CUTOFF_THRESHOLD / self.get_allowed_frame_skip():
                 bottle = self.temporary_bottles[track_id]
                 self.bottle_index_counter += 1
                 bottle.index = self.bottle_index_counter
                 self.bottles[track_id] = bottle
-                print("Bottle assigned index:", bottle.index, "Track ID:", track_id, "Camera:", self.name)
+                log("Bottle assigned index:", bottle.index, "Track ID:", track_id, "Camera:", self.name)
                 del self.temporary_bottles[track_id]
                 self.last_registered_bottle = bottle
                 self.last_registered_bottle_track_id = track_id
@@ -162,9 +172,9 @@ class Camera:
 
     def register_correction(self, corrected_index):
         self.sequential_correction_count += 1
-        if self.sequential_correction_count > SEQUENTIAL_CORRECTION_THRESHOLD:
+        if self.sequential_correction_count > TEMPORAL_CUTOFF_THRESHOLD / self.get_allowed_frame_skip():
             self.bottle_index_counter = corrected_index
-            print(f"I, Camera {self.name}, was wrong {self.sequential_correction_count} in a row. I really thought I was right but I guess I wasn't. As punishment I will correct myself, remember that the correct index from now on is {corrected_index} and I will try my best to never do this again. I'm so sorry.")
+            log(f"I, Camera {self.name}, was wrong {self.sequential_correction_count} in a row. I really thought I was right but I guess I wasn't. As punishment I will correct myself, remember that the correct index from now on is {corrected_index} and I will try my best to never do this again. I'm so sorry.")
 
 
     
@@ -181,9 +191,6 @@ class BottleTracker:
     def __init__(self, cameras: list[Camera]):
         self.cameras = cameras
         self.track_ids = []
-
-    # def render_box(self, frame, box):
-        
     
     def run(self):
         while True:
@@ -191,15 +198,14 @@ class BottleTracker:
             frames = []
             
             for camera_index, camera in enumerate(self.cameras):
-                # print(f"Camera {camera_index}: {camera.name} - {camera.video_path} Processed: {camera.processed_frame_count}")
-                # w, h = camera.adjusted_width, camera.adjusted_height
                 ret, frame = camera.get_frame()
                 
                 if camera.processed_frame_count >= MAX_FRAMES or not camera.is_open():
-                    print(f"Done. {camera.processed_frame_count} frames processed.")
+                    log(f"Done. {camera.processed_frame_count} frames processed.")
                     break
                     
                 if not camera.should_process_frame():
+                    blabber("Skipping frame")
                     continue
                 
                 
@@ -224,7 +230,7 @@ class BottleTracker:
                             self.track_ids = result.boxes.id.cpu().numpy().astype(int)
                         confidences = result.boxes.conf.cpu()
                         
-                        # print("Boxes:", boxes)
+                        # log("Boxes:", boxes)
                         
                         # annotated_frame = result.plot()
                         
@@ -237,7 +243,7 @@ class BottleTracker:
                                 track_id = self.track_ids[box_index]
                                 
                                 if camera.register_bottle(x_center, y_center, track_id):
-                                    print("Bottle got accepted as being new.")
+                                    log("Bottle got accepted as being new.")
                                 
                                 # Render box on frame
                                 scaled_x_center = int(x_center * x_scale)
@@ -288,7 +294,7 @@ class BottleTracker:
                     last_bottle_indices.add(camera.last_registered_bottle.index)
             
             if len(last_bottle_indices) > 1:
-                # print("Warning: Cameras disagree on last registered bottle indices:", last_bottle_indices, "Camera number:", camera_index)
+                # log("Warning: Cameras disagree on last registered bottle indices:", last_bottle_indices, "Camera number:", camera_index)
                 self.camera_disagreement_counts[camera_index] = self.camera_disagreement_counts.get(camera_index, 0) + 1
                 
                 if self.camera_disagreement_counts[camera_index] >= BOTTLE_DISAGREEMENT_TOLERANCE:
@@ -310,7 +316,7 @@ class BottleTracker:
             combined_frame = np.vstack(row_frames)
             
             if self.window_was_open and self.is_window_closed(PREVIEW_WINDOW_NAME):
-                print("Window closed, exiting.")
+                log("Window closed, exiting.")
                 break
                 
             cv2.imshow(PREVIEW_WINDOW_NAME, combined_frame)
@@ -324,35 +330,35 @@ class BottleTracker:
                 
             self.window_was_open = True
             
-        print("Finished processing.")
+        log("Finished processing.")
         self.release()
         
     def correct_index_disagreements(self):
         # Find the most common last registered bottle index among cameras
-        print("Correcting index disagreements among cameras.")
+        log("Correcting index disagreements among cameras.")
         last_indices = []
         for camera in self.cameras:
             if camera.last_registered_bottle is not None:
                 last_indices.append(camera.last_registered_bottle.index)
-        print("Last registered bottle indices from cameras:", last_indices)
+        log("Last registered bottle indices from cameras:", last_indices)
         if not last_indices:
             return
         
         index_counts = Counter(last_indices)
         most_common_index, most_common_count = index_counts.most_common(1)[0]
         
-        print(f"Most common last registered bottle index is {most_common_index} seen {most_common_count} times.")
+        log(f"Most common last registered bottle index is {most_common_index} seen {most_common_count} times.")
         
         if ENFORCE_INCREMENTAL_CORRECTION and not most_common_index > self.last_corrected_index:
-            print("Warning: I can't correct to an index that was used before. Incrementing might skip an index but ensures all indexes link to one bottle.")
+            log("Warning: I can't correct to an index that was used before. Incrementing might skip an index but ensures all indexes link to one bottle.")
             most_common_index = self.last_corrected_index + 1
         
         if most_common_count > len(self.cameras) / 2:
-            print("Majority agreement found, correcting outcast.")
+            log("Majority agreement found, correcting outcast.")
             self.last_corrected_index = most_common_index
             for camera in self.cameras:
                 if camera.last_registered_bottle is not None:
-                    print(f"Correcting camera {camera.name} from index {camera.last_registered_bottle.index} to {most_common_index}")
+                    log(f"Correcting camera {camera.name} from index {camera.last_registered_bottle.index} to {most_common_index}")
                     if camera.last_registered_bottle.index != most_common_index:
                         camera.last_registered_bottle.index = most_common_index
                         camera.last_registered_bottle.was_corrected = True
@@ -378,14 +384,16 @@ class BottleTracker:
 
 def main():
     cameras: list[Camera] = [
+        Camera('Top', 'videos/14_55/14_55_top_cropped.mp4', start_delay=4),
         Camera('Front', 'videos/14_55/14_55_front_cropped.mp4', start_delay=0),
         
         Camera('Back Left', 'videos/14_55/14_55_back_left_cropped.mp4', start_delay=2),
         Camera('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_delay=1, start_index=-1),
-        Camera('Top', 'videos/14_55/14_55_top_cropped.mp4', start_delay=4)
     ]
     
     bottle_tracker = BottleTracker(cameras)
+    
+    log("Created cameras. Initiating tracking...")
     bottle_tracker.run()
 
 if __name__ == '__main__':

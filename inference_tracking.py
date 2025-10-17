@@ -170,6 +170,7 @@ class Camera:
         self.sequential_correction_count += 1
         if self.sequential_correction_count > SEQUENTIAL_CORRECTION_THRESHOLD:
             self.bottle_index_counter = corrected_index
+            print(f"I, Camera {self.name}, was wrong {self.sequential_correction_count} in a row. I really thought I was right but I guess I wasn't. As punishment I will correct myself, remember that the correct index from now on is {corrected_index} and I will try my best to never do this again. I'm so sorry.")
 
 
     
@@ -303,8 +304,7 @@ class BottleTracker:
             if not len(frames) > 0:
                 continue
             
-            
-            frame_rows = split_array(frames, 2)
+            frame_rows = self.split_array(frames, 2)
             row_frames = []
             for row in frame_rows:
                 while len(row) < 2:
@@ -314,9 +314,7 @@ class BottleTracker:
             
             combined_frame = np.vstack(row_frames)
             
-            
-                
-            if self.window_was_open and is_window_closed(PREVIEW_WINDOW_NAME):
+            if self.window_was_open and self.is_window_closed(PREVIEW_WINDOW_NAME):
                 print("Window closed, exiting.")
                 break
                 
@@ -371,10 +369,10 @@ class BottleTracker:
 
     # Boring functions
 
-    def split_array(arr, max_length):
+    def split_array(self, arr, max_length):
         return [arr[i:i + max_length] for i in range(0, len(arr), max_length)] if arr else []
             
-    def is_window_closed(window_name):
+    def is_window_closed(self, window_name):
         try: return cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1
         except: return True
 

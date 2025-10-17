@@ -9,8 +9,8 @@ BATCH_SIZE = 5
 IMAGE_SIZE = 320
 PREVIEW_IMAGE_SIZE = 1080
 
-SKIP_FRAMES = 5
-MAX_FRAMES = 100
+SKIP_FRAMES = 0
+MAX_FRAMES = 10000
 
 SAVE_VIDEO = False
 
@@ -46,6 +46,9 @@ if __name__ == '__main__':
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_path, fourcc, FPS, (adjusted_width, adjusted_height))
     
+    boxes = []
+    track_ids = []
+    
     while cap.isOpened():
         ret, frame = cap.read()
         
@@ -62,10 +65,22 @@ if __name__ == '__main__':
         # preview_frame = cv2.resize(frame, (PREVIEW_IMAGE_SIZE, int(PREVIEW_IMAGE_SIZE / aspect_ratio)))
     
         # results = model.track(frame, conf=0.25, save=True, imgsz=IMAGE_SIZE, batch=BATCH_SIZE, device=0)
-        results = model.track(small_frame, conf=0.25, persist=True, save=SAVE_VIDEO, device=0)
+        # results = model.track(small_frame, conf=0.25, persist=True, save=SAVE_VIDEO, device=0)
+        results = model(small_frame, conf=0.25, save=SAVE_VIDEO, device=0)
         
         for result in results:
-            print(result.boxes)
+            # print(result.boxes)
+            annotated_frame = result.plot()
+            out.write(annotated_frame)
+            
+            cv2.imshow('Live Tracking Preview', annotated_frame)
+    
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+            elif key == ord('p'):
+                cv2.waitKey(-1)
+                
             if result.boxes is not None and result.boxes.id is not None:
                 boxes = result.boxes.xywh.cpu()
                 track_ids = result.boxes.id.cpu().numpy().astype(int)
@@ -81,16 +96,7 @@ if __name__ == '__main__':
                     box_area = box_width * box_height
                     print(f"Box {i} (ID: {track_ids[i]}): {box_width:.1f}x{box_height:.1f} pixels, Area: {box_area:.1f} px²")
                 
-                annotated_frame = result.plot()
-                out.write(annotated_frame)
                 
-                cv2.imshow('Live Tracking Preview', annotated_frame)
-        
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord('q'):
-                    break
-                elif key == ord('p'):
-                    cv2.waitKey(-1)
                 
         processed_count += 1
         

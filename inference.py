@@ -22,7 +22,13 @@ FPS = 30
 
 class Bottle:
     index: int
-    pass
+    x: float
+    y: float
+    in_view: bool = True
+    
+    def __init__(self, x: float, y: float):
+        self.x = x
+        self.y = y
 
 if __name__ == '__main__':
     model = YOLO("runs/detect/train11/weights/best.pt")
@@ -59,8 +65,8 @@ if __name__ == '__main__':
     bottles: list[Bottle] = []
     track_ids = []
     
-    def register_bottle():
-        bottle = Bottle()
+    def register_bottle(x, y):
+        bottle = Bottle(x, y)
         bottle.index = len(bottles) + 1
         bottles.append(bottle)
     
@@ -125,7 +131,7 @@ if __name__ == '__main__':
                             register_bottle()
                     else:
                         bottle_was_entering = False
-                        
+                
                         
             
             # Displqy the frame

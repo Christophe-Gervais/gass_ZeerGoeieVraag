@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from collections import Counter
 import threading
 import queue
+from time import time, sleep
 
 # Input options
 MODEL_PATH = "runs/detect/train11/weights/best.pt"
@@ -27,6 +28,8 @@ ENFORCE_INCREMENTAL_CORRECTION = False # Make sure the corrected index is unique
 PREVIEW_IMAGE_SIZE = 400
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
+EASE_DISPLAY_SPEED = True
+DISPLAY_FRAMERATE = 1
 
 # Logging options
 VERBOSE_YOLO = False
@@ -142,9 +145,13 @@ class Camera:
             return None
         
         # As
+    def get_ready_frames_count(self):
+        return self.frame_queue.qsize()
     
     def _image_processing_worker(self):
-        while self.preprocess_frames(BATCH_SIZE):
+        blabber("Starting batch preprocessing.")
+        while True:
+            self.preprocess_frames(BATCH_SIZE)
             blabber(f"Processed a batch of {BATCH_SIZE} images")
             pass
     
@@ -247,11 +254,15 @@ class BottleTracker:
     camera_disagreement_counts: dict[int, int] = {}
     last_corrected_index: int = -1
     
+    last_frame_time = time()
+    
     def __init__(self, cameras: list[Camera]):
         self.cameras = cameras
         self.track_ids = []
     
     def run(self):
+        for camera in self.cameras:
+            camera.start_preprocessing()
         while True:
             
             frames = []
@@ -345,6 +356,19 @@ class BottleTracker:
                 if self.camera_disagreement_counts[camera_index] >= BOTTLE_DISAGREEMENT_TOLERANCE:
                     self.correct_index_disagreements()
                 
+            
+            # If the last frame was displayed recently, wait
+            now = time()
+            time_passed = now - self.last_frame_time
+            min_time_passed = 1 / DISPLAY_FRAMERATE
+            if time_passed < min_time_passed:
+                sleep_time = min_time_passed - time_passed
+                if sleep_time > 0:
+                    queued_frames = camera.get_ready_frames_count()
+                    print(f"I'm being rate limited. {queued_frames} frames are already prepared. Sleeping for {sleep_time} seconds...")
+                    sleep(sleep_time)
+            
+            self.last_frame_time = time()
             
             # Display the frame
             if not len(frames) > 0:

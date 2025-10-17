@@ -10,8 +10,7 @@ from collections import Counter
 
 BATCH_SIZE = 5
 IMAGE_SIZE = 320
-PREVIEW_IMAGE_SIZE = 400
-PREVIEW_WINDOW_NAME = "Live Tracking Preview"
+
 
 SKIP_FRAMES = 0 # Skip this many frames between each processing step
 
@@ -24,17 +23,26 @@ LAST_WIDTH_COUNT = 3
 INPUT_VIDEO_FPS = 60
 
 MODEL_PATH = "runs/detect/train11/weights/best.pt"
-VERBOSE = False
 
-EXTRA_CAMERA_DELAY = 0  # seconds
 
-TEMPORAL_CUTOFF_THRESHOLD = 20  # Amount of frames a bottle needs to be seen to be considered tracked
-
-BOTTLE_DISAGREEMENT_TOLERANCE = 30  # frames the cameras can disagree before correction is applied7
-
-ENFORCE_INCREMENTAL_CORRECTION = False # Make sure the corrected index is unique
-
+TEMPORAL_CUTOFF_THRESHOLD = 20  # Amount of frames a bottle needs to be seen to be considered tracked.
+BOTTLE_DISAGREEMENT_TOLERANCE = 30  # Amount of frames the cameras can disagree before correction is applied.
 SEQUENTIAL_CORRECTION_THRESHOLD = 3 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
+ENFORCE_INCREMENTAL_CORRECTION = False # Make sure the corrected index is unique.
+
+EXTRA_CAMERA_DELAY = 0  # Delay in seconds
+
+# Preview options
+PREVIEW_IMAGE_SIZE = 400
+PREVIEW_WINDOW_NAME = "Live Tracking Preview"
+
+# Logging parameters
+VERBOSE_YOLO = False
+VERBOSE_LOGS = True
+
+def log(message: str):
+    if not VERBOSE_LOGS: return
+    print(message)
 
 class Bottle:
     index: int = -1
@@ -77,7 +85,6 @@ class Camera:
         self.name = name
         self.video_path = video_path
         input_path = Path(video_path)
-        self.output_path = f'runs/detect/track/{input_path.stem}_tracked.mp4'
         
         self.cap = cv2.VideoCapture(video_path)
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -90,10 +97,11 @@ class Camera:
         self.adjusted_width = int(IMAGE_SIZE * self.aspect_ratio)
         self.adjusted_height = IMAGE_SIZE
         
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        self.out = cv2.VideoWriter(self.output_path, fourcc, self.capture_fps / SKIP_FRAMES if SKIP_FRAMES > 0 else 1, (self.adjusted_width, self.adjusted_height))
+        if SAVE_VIDEO:
+            self.output_path = f'runs/detect/track/{input_path.stem}_tracked.mp4'
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            self.out = cv2.VideoWriter(self.output_path, fourcc, self.capture_fps / SKIP_FRAMES if SKIP_FRAMES > 0 else 1, (self.adjusted_width, self.adjusted_height))
         
-        self.model = YOLO(MODEL_PATH)
         self.bottles = {}
         self.bottle_index_counter = start_index
         
@@ -101,13 +109,18 @@ class Camera:
         frames_to_skip = int(start_delay * self.capture_fps)
         if frames_to_skip > 0:
             print(f"Camera {self.name}: Skipping first {frames_to_skip} frames for start delay of {start_delay} seconds.")
-        for _ in range(frames_to_skip):
-            ret, frame = self.cap.read()
-            if not ret:
-                break
+            for _ in range(frames_to_skip):
+                ret, frame = self.cap.read()
+                if not ret:
+                    break
+            print("Finished skipping frames.")
         
         self.frame_count = 0
         self.processed_frame_count = 0
+        
+        print("Finished camera setup. Loading model...")
+        self.model = YOLO(MODEL_PATH)
+        print("Finished loading model!")
         
     def get_frame(self):
         self.frame_count += 1
@@ -118,7 +131,7 @@ class Camera:
     
     def process_frame(self, frame):
         small_frame = cv2.resize(frame, (self.adjusted_width, self.adjusted_height))
-        results = self.model.track(small_frame, conf=0.25, persist=True, device=0, verbose=VERBOSE)
+        results = self.model.track(small_frame, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
         return results
     
     def is_open(self):

@@ -16,9 +16,9 @@ EXTRA_CAMERA_DELAY = 0  # Delay in seconds
 MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 
 # Algorithm options
-IMAGE_SIZE = 160
+IMAGE_SIZE = 80
 BATCH_SIZE = 100
-SKIP_FRAMES = 1 # Skip this many frames between each processing step
+SKIP_FRAMES = 10 # Skip this many frames between each processing step
 TEMPORAL_CUTOFF_THRESHOLD = 6  # Amount of frames a bottle needs to be seen to be considered tracked.
 BOTTLE_DISAGREEMENT_TOLERANCE = 15  # Amount of frames the cameras can disagree before correction is applied.
 SEQUENTIAL_CORRECTION_THRESHOLD = 2 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
@@ -26,12 +26,12 @@ ENFORCE_INCREMENTAL_CORRECTION = False # Make sure the corrected index is unique
 EXTRA_CORRECTION = True # Allow correcting half the feed if one half disagrees with itself.
 
 # Preview options
-PREVIEW_IMAGE_SIZE = 400
+PREVIEW_IMAGE_SIZE = 200
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
 EASE_DISPLAY_SPEED = True
-DISPLAY_FRAMERATE = 15
-MAX_QUEUE_SIZE = 100 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
+DISPLAY_FRAMERATE = 10
+MAX_QUEUE_SIZE = 300 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 1 # Amount of seconds to wait when queue is full
 
 # Logging options
@@ -389,30 +389,37 @@ class BottleTracker:
             self.last_frame_time = time()
             
             # Display the frame
-            
-            camera_count = len(self.cameras)
-            frame_rows = self.split_array(frames, 2)
-            row_frames = []
-            for row in frame_rows:
-                while len(row) < 2:
-                    row.append(np.zeros_like(row[0]))
-                row_frame = np.hstack(row)
-                row_frames.append(row_frame)
-            
-            combined_frame = np.vstack(row_frames)
-            
-            if self.window_was_open and self.is_window_closed(PREVIEW_WINDOW_NAME):
-                log("Window closed, exiting.")
-                break
+            try:
+                camera_count = len(self.cameras)
+                if len(frames) >= camera_count:
+                    frame_rows = self.split_array(frames, 2)
+                    log(frame_rows)
+                    row_frames = []
+                    for row in frame_rows:
+                        while len(row) < 2:
+                            row.append(np.zeros_like(row[0]))
+                        row_frame = np.hstack(row)
+                        row_frames.append(row_frame)
                 
-            cv2.imshow(PREVIEW_WINDOW_NAME, combined_frame)
-            
+                    combined_frame = np.vstack(row_frames)
+                else:
+                    combined_frame = np.hstack(frames)
+                
+                if self.window_was_open and self.is_window_closed(PREVIEW_WINDOW_NAME):
+                    log("Window closed, exiting.")
+                    break
+                    
+                cv2.imshow(PREVIEW_WINDOW_NAME, combined_frame)
+                
 
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                break
-            elif key == ord('p'):
-                cv2.waitKey(-1)
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q'):
+                    break
+                elif key == ord('p'):
+                    cv2.waitKey(-1)
+            except Exception as e:
+                log("Error displaying frame:", e)
+                
                 
             self.window_was_open = True
             

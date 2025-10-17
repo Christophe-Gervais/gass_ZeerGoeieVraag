@@ -32,7 +32,9 @@ EXTRA_CAMERA_DELAY = 0  # seconds
 
 # BOTTLE_REGISTRATION_BLANKING_FRAMES = 2  # frames
 
-BOTTLE_DISAGREEMENT_TOLERANCE = 20  # frames
+BOTTLE_DISAGREEMENT_TOLERANCE = 30  # frames the cameras can disagree before correction is applied7
+
+ENFORCE_INCREMENTAL_CORRECTION = False
 
 class Bottle:
     index: int = -1
@@ -176,7 +178,7 @@ class BottleTracker:
     window_was_open: bool = False
     
     camera_disagreement_counts: dict[int, int] = {}
-    last_disagreement_index: int = -1
+    last_corrected_index: int = -1
     
     def __init__(self, cameras: list[Camera]):
         self.cameras = cameras
@@ -277,7 +279,7 @@ class BottleTracker:
                     last_bottle_indices.add(camera.last_registered_bottle.index)
             
             if len(last_bottle_indices) > 1:
-                print("Warning: Cameras disagree on last registered bottle indices:", last_bottle_indices, "Camera number:", camera_index)
+                # print("Warning: Cameras disagree on last registered bottle indices:", last_bottle_indices, "Camera number:", camera_index)
                 self.camera_disagreement_counts[camera_index] = self.camera_disagreement_counts.get(camera_index, 0) + 1
                 
                 if self.camera_disagreement_counts[camera_index] >= BOTTLE_DISAGREEMENT_TOLERANCE:
@@ -335,8 +337,13 @@ class BottleTracker:
         
         print(f"Most common last registered bottle index is {most_common_index} seen {most_common_count} times.")
         
+        if ENFORCE_INCREMENTAL_CORRECTION and not most_common_index > self.last_corrected_index:
+            print("Warning: I can't correct to an index that was used before. Incrementing might skip an index but ensures all indexes link to one bottle.")
+            most_common_index = self.last_corrected_index + 1
+        
         if most_common_count > len(self.cameras) / 2:
             print("Majority agreement found, correcting outcast.")
+            self.last_corrected_index = most_common_index
             for camera in cameras:
                 if camera.last_registered_bottle is not None:
                     print(f"Correcting camera {camera.name} from index {camera.last_registered_bottle.index} to {most_common_index}")

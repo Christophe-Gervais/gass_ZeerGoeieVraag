@@ -170,17 +170,8 @@ if __name__ == '__main__':
             if not ret:
                 break
             
-            # small_frame = cv2.resize(frame, (camera.adjusted_width, camera.adjusted_height))
-            
-            # We can preivew on a larger scale if wanted, I'm not gonna implement that yet
-            # preview_frame = cv2.resize(frame, (PREVIEW_IMAGE_SIZE, int(PREVIEW_IMAGE_SIZE / aspect_ratio)))
-        
-            # results = model.track(small_frame, conf=0.25, persist=True, device=0)
-            
             for result in results:
-                # print(result.boxes)
                 annotated_frame = result.plot()
-                # camera.out.write(annotated_frame)
                     
                 if result.boxes is not None:
                     boxes = result.boxes.xywh.cpu()
@@ -200,24 +191,18 @@ if __name__ == '__main__':
                         if track_ids is not None:
                             track_id = track_ids[box_index]
                             
-                            # print("Camera ID:", camera_index,"Track ID: ", track_id)
-                            # register_bottle(x_center, y_center, track_id)
                             camera.register_bottle(x_center, y_center, track_id)
                             
                             if track_id in camera.bottles:
                                 # print("This bottle was already seen")
                                 bottle = camera.bottles[track_id]
                                 cv2.putText(annotated_frame, 'ID: ' + str(bottle.index), (int(x_center), int(y_center)), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                        # print("Confidences:", confidences)
                     
                     frames.append(annotated_frame)
                     
                     if SAVE_VIDEO:
                         camera.out.write(annotated_frame)
-                    
-                    
-                    
-            # processed_count += 1
+                        
             camera.finish_frame()
                             
                             

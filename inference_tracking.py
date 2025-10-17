@@ -34,7 +34,9 @@ EXTRA_CAMERA_DELAY = 0  # seconds
 
 BOTTLE_DISAGREEMENT_TOLERANCE = 30  # frames the cameras can disagree before correction is applied7
 
-ENFORCE_INCREMENTAL_CORRECTION = False
+ENFORCE_INCREMENTAL_CORRECTION = False # Make sure the corrected index is unique
+
+CORRECTION_PERMANENCE_THRESHOLD = 3 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
 
 class Bottle:
     index: int = -1
@@ -42,6 +44,7 @@ class Bottle:
     y: float
     in_view: bool = True
     yolo_id: int
+    was_corrected: bool = False
     
     def __init__(self, x: float, y: float, yolo_id: int):
         self.x = x
@@ -71,6 +74,7 @@ class Camera:
     frames_since_last_registration: int = 0
     last_registered_bottle: Bottle = None
     last_registered_bottle_track_id: int = -1
+    sequential_correction_count: int = 0
     def __init__(self, name: str, video_path: str, start_delay: int = 0, start_index: int = 0):
         self.name = name
         self.video_path = video_path
@@ -150,6 +154,7 @@ class Camera:
                 del self.temporary_bottles[track_id]
                 self.last_registered_bottle = bottle
                 self.last_registered_bottle_track_id = track_id
+                return True
                 # self.frames_since_last_registration 
             return False
         bottle = Bottle(x, y, track_id)
@@ -159,7 +164,12 @@ class Camera:
         
         # self.frames_since_last_registration += 1
         
-        return True
+        return False
+
+    def register_correction(self, new_index):
+        self.sequential_correction_count += 1
+        if self.sequential_correction_count > CORRECTION_PERMANENCE_THRESHOLD:
+            bottle_index_counter = new_index
 
 def split_array(arr, max_length):
     return [arr[i:i + max_length] for i in range(0, len(arr), max_length)] if arr else []
@@ -183,6 +193,9 @@ class BottleTracker:
     def __init__(self, cameras: list[Camera]):
         self.cameras = cameras
         self.track_ids = []
+
+    # def render_box(self, frame, box):
+        
     
     def run(self):
         while True:
@@ -234,7 +247,8 @@ class BottleTracker:
                             if self.track_ids is not None:
                                 track_id = self.track_ids[box_index]
                                 
-                                camera.register_bottle(x_center, y_center, track_id)
+                                if camera.register_bottle(x_center, y_center, track_id):
+                                    print("Bottle got accepted as being new.")
                                 
                                 # Render box on frame
                                 scaled_x_center = int(x_center * x_scale)
@@ -257,10 +271,16 @@ class BottleTracker:
                                 color = (255, 0, 0)
                                 cv2.rectangle(output_frame, (x1, y1), (x2, y2), color, thickness)
                                 
+                                def draw_bottle_id(color):
+                                    cv2.putText(output_frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+                                    
+                                
+                                if track_id in camera.temporary_bottles:
+                                    bottle = camera.temporary_bottles[track_id]
+                                    draw_bottle_id((0, 0, 255))
                                 if track_id in camera.bottles:
-                                    # print("This bottle was already seen")
                                     bottle = camera.bottles[track_id]
-                                    cv2.putText(output_frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                                    draw_bottle_id((255, 255, 0) if bottle.was_corrected else (0, 255, 0))
                         
                         frames.append(output_frame)
                         
@@ -347,7 +367,11 @@ class BottleTracker:
             for camera in cameras:
                 if camera.last_registered_bottle is not None:
                     print(f"Correcting camera {camera.name} from index {camera.last_registered_bottle.index} to {most_common_index}")
-                    camera.last_registered_bottle.index = most_common_index
+                    if camera.last_registered_bottle.index != most_common_index:
+                        camera.last_registered_bottle.index = most_common_index
+                        camera.last_registered_bottle.was_corrected = True
+                        camera.register_correction(most_common_index)
+                        
         
         # reset disagreement counts
         self.camera_disagreement_counts = {}

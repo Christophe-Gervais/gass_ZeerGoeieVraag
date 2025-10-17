@@ -1,4 +1,5 @@
 from ultralytics import YOLO
+from ultralytics import engine
 import cv2
 from pathlib import Path
 import numpy as np
@@ -76,6 +77,10 @@ class Camera:
     last_registered_bottle_track_id: int = -1
     sequential_correction_count: int = 0
     
+    frames: list[cv2.typing.MatLike]
+    results: list
+    frame_index: int
+    
     def get_allowed_frame_skip(self):
         return SKIP_FRAMES if SKIP_FRAMES > 0 else 1
     
@@ -120,25 +125,49 @@ class Camera:
         self.model = YOLO(MODEL_PATH)
         blabber("Finished loading model!")
         
+        self.frames = []
+        self.results = []
+        self.frame_index = 0
+        
     def get_frame(self):
-        self.frame_count += 1
-        return self.cap.read()
+        if self.frame_index + 1 >= len(self.frames):
+            self.preprocess_frames(BATCH_SIZE)
+        
+        self.frame_index += 1
+        return self.frames[self.frame_index], self.results[self.frame_index]
+    
+    def preprocess_frames(self, num_frames: int):
+        self.frame_count += num_frames
+        new_frames = []
+        for _ in range(num_frames):
+            while not self.should_process_frame():
+                blabber("Skipping frame")
+                self.frame_count += 1
+                self.cap.read()
+            ret, frame = self.cap.read()
+            small_frame = cv2.resize(frame, (self.adjusted_width, self.adjusted_height))
+            if not ret:
+                break
+            new_frames.append(small_frame)
+        results = self.model.track(new_frames, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
+        self.results.extend(results)
+        self.frames.extend(new_frames)
 
     def should_process_frame(self):
         blabber(f"I made {self.frame_count} frames.")
         return self.frame_count % (SKIP_FRAMES + 1) == 0 if SKIP_FRAMES > 0 else True
     
-    def process_frame(self, frame):
-        small_frame = cv2.resize(frame, (self.adjusted_width, self.adjusted_height))
-        results = self.model.track(small_frame, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
-        return results
+    # def process_frame(self, frame):
+    #     small_frame = cv2.resize(frame, (self.adjusted_width, self.adjusted_height))
+    #     results = self.model.track(small_frame, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
+    #     return results
     
     def is_open(self):
         return self.cap.isOpened()
     
     def release(self):
         self.cap.release()
-        self.out.release()
+        if SAVE_VIDEO: self.out.release()
     
     def finish_frame(self):
         self.processed_frame_count += 1
@@ -198,18 +227,16 @@ class BottleTracker:
             frames = []
             
             for camera_index, camera in enumerate(self.cameras):
-                ret, frame = camera.get_frame()
+                frame, results = camera.get_frame()
                 
                 if camera.processed_frame_count >= MAX_FRAMES or not camera.is_open():
                     log(f"Done. {camera.processed_frame_count} frames processed.")
                     break
                     
-                if not camera.should_process_frame():
-                    blabber("Skipping frame")
-                    continue
                 
                 
-                results = camera.process_frame(frame)
+                
+                # results = camera.get_frame_results(frame)
                 
                 output_frame_width = int(PREVIEW_IMAGE_SIZE * camera.aspect_ratio)
                 output_frame_height = PREVIEW_IMAGE_SIZE
@@ -217,8 +244,6 @@ class BottleTracker:
                 x_scale = output_frame_width / camera.adjusted_width
                 y_scale = output_frame_height / camera.adjusted_height
                 
-                if not ret:
-                    break
                 
                 for result in results:
                     if result.boxes is not None:

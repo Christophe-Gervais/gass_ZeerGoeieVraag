@@ -59,6 +59,11 @@ if __name__ == '__main__':
     bottles: list[Bottle] = []
     track_ids = []
     
+    def register_bottle():
+        bottle = Bottle()
+        bottle.index = len(bottles) + 1
+        bottles.append(bottle)
+    
     bottle_was_entering = False
     
     while cap.isOpened():
@@ -78,7 +83,7 @@ if __name__ == '__main__':
     
         # results = model.track(frame, conf=0.25, save=True, imgsz=IMAGE_SIZE, batch=BATCH_SIZE, device=0)
         # results = model.track(small_frame, conf=0.25, persist=True, save=SAVE_VIDEO, device=0)
-        results = model.track(small_frame, conf=0.25, save=SAVE_VIDEO, device=0)
+        results = model(small_frame, conf=0.25, device=0)
         
         for result in results:
             # print(result.boxes)
@@ -98,7 +103,8 @@ if __name__ == '__main__':
                 for i, box in enumerate(boxes):
                     x_center, y_center, box_width, box_height = box
                     box_area = box_width * box_height
-                    print(f"Box {i} (ID: {0}): {box_width:.1f}x{box_height:.1f} pixels, Area: {box_area:.1f} px²")
+                    print(f"Box {i} (ID: {len(bottles)}): {box_width:.1f}x{box_height:.1f} pixels, Area: {box_area:.1f} px²")
+                    cv2.putText(annotated_frame, 'ID: ' + str(len(bottles)), (int(x_center), int(y_center)), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                     # first_bottle_widths.append(float(box_width))k
                 
                 first_bottle_widths.append(float(boxes[0][2]))
@@ -116,6 +122,7 @@ if __name__ == '__main__':
                             print("Bottle is entering.")
                             cv2.putText(annotated_frame, 'New bottle entering', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
                             bottle_was_entering = True
+                            register_bottle()
                     else:
                         bottle_was_entering = False
                         

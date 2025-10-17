@@ -2,6 +2,7 @@ from ultralytics import YOLO
 import cv2
 from pathlib import Path
 import numpy as np
+import matplotlib.pyplot as plt
 
 # https://docs.ultralytics.com/tasks/classify/#predict
 
@@ -9,10 +10,13 @@ BATCH_SIZE = 5
 IMAGE_SIZE = 320
 PREVIEW_IMAGE_SIZE = 1080
 
-SKIP_FRAMES = 0
-MAX_FRAMES = 10000
+SKIP_FRAMES = 5
+MAX_FRAMES = 100
 
 SAVE_VIDEO = False
+
+WIDTH_CHANGE_THRESHOLD = 20.0  # pixels
+LAST_WIDTH_COUNT = 3
 
 FPS = 30
 
@@ -33,6 +37,8 @@ if __name__ == '__main__':
     frame_count = 0
     processed_count = 0
     tracked_objects = {}
+    
+    first_bottle_widths = []
     
     
     cap = cv2.VideoCapture(video_path)
@@ -72,6 +78,49 @@ if __name__ == '__main__':
             # print(result.boxes)
             annotated_frame = result.plot()
             out.write(annotated_frame)
+                
+            if result.boxes is not None and len(result.boxes) > 0:
+                boxes = result.boxes.xywh.cpu()
+                confidences = result.boxes.conf.cpu()
+                
+                print("Boxes:", boxes)
+                print("Confidences:", confidences)
+                
+                print("\n--- BOX SIZES ---")
+                for i, box in enumerate(boxes):
+                    x_center, y_center, box_width, box_height = box
+                    box_area = box_width * box_height
+                    print(f"Box {i} (ID: {0}): {box_width:.1f}x{box_height:.1f} pixels, Area: {box_area:.1f} px²")
+                    first_bottle_widths.append(float(box_width))
+
+
+            last_widths = first_bottle_widths[-LAST_WIDTH_COUNT:]
+            print("Last two box widths:", last_widths)
+            if len(last_widths) == LAST_WIDTH_COUNT:
+                change = 0
+                for i in range(0, LAST_WIDTH_COUNT - 1):
+                    print(i)
+                    change += last_widths[1 + i] - last_widths[0 + i]
+                
+                if abs(change) > WIDTH_CHANGE_THRESHOLD:
+                    print("Significant width change detected!")
+                    if change > 0:
+                        print("Bottle entered the frame.")
+                    else:
+                        print("Bottle ran away.")
+                # if c
+                # change = last_widths[1] - last_widths[0]
+                # print(f"Change in box width: {change:.2f} pixels")
+                
+                # if abs(change) > WIDTH_CHANGE_THRESHOLD:
+                #     print("Significant width change detected!")
+                #     if change > 0:
+                #         print("Bottle entered the frame.")
+                #     else:
+                #         print("Bottle ran away.")
+                
+            
+            # Displqy the frame
             
             cv2.imshow('Live Tracking Preview', annotated_frame)
     
@@ -81,24 +130,19 @@ if __name__ == '__main__':
             elif key == ord('p'):
                 cv2.waitKey(-1)
                 
-            if result.boxes is not None and result.boxes.id is not None:
-                boxes = result.boxes.xywh.cpu()
-                track_ids = result.boxes.id.cpu().numpy().astype(int)
-                confidences = result.boxes.conf.cpu()
-                
-                print("Boxes:", boxes)
-                print("Track IDs:", track_ids)
-                print("Confidences:", confidences)
-                
-                print("\n--- BOX SIZES ---")
-                for i, box in enumerate(boxes):
-                    x_center, y_center, box_width, box_height = box
-                    box_area = box_width * box_height
-                    print(f"Box {i} (ID: {track_ids[i]}): {box_width:.1f}x{box_height:.1f} pixels, Area: {box_area:.1f} px²")
-                
                 
                 
         processed_count += 1
+        
+    # Plot box widths
+    plt.figure(figsize=(10, 6))
+    plt.plot(first_bottle_widths, marker='o', linestyle='-')
+    plt.title('Box Widths Over Time')
+    plt.xlabel('Frame Number')
+    plt.ylabel('Box Width (pixels)')
+    plt.grid(True)
+    plt.savefig('box_widths_over_time.png')
+    plt.show()
         
     cap.release()
     out.release()

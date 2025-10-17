@@ -30,6 +30,8 @@ SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
 EASE_DISPLAY_SPEED = True
 DISPLAY_FRAMERATE = 1
+MAX_QUEUE_SIZE = 200 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
+QUEUE_SIZE_CHECK_INTERVAL = 1 # Amount of seconds to wait when queue is full
 
 # Logging options
 VERBOSE_YOLO = False
@@ -168,6 +170,12 @@ class Camera:
         print("Background producer stopped")    
     
     def preprocess_frames(self, num_frames: int):
+        
+        # Limit the queue size
+        if MAX_QUEUE_SIZE > 0:
+            while self.frame_queue.qsize() > MAX_QUEUE_SIZE - BATCH_SIZE:
+                sleep(QUEUE_SIZE_CHECK_INTERVAL)
+        
         self.frame_count += num_frames
         new_frames = []
         finished = False
@@ -373,7 +381,8 @@ class BottleTracker:
             if not len(frames) > 0:
                 continue
             
-            frame_rows = self.split_array(frames, 2)
+            camera_count = len(self.cameras)
+            frame_rows = self.split_array(frames[:camera_count], 2)
             row_frames = []
             for row in frame_rows:
                 while len(row) < 2:

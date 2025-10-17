@@ -29,7 +29,7 @@ PREVIEW_IMAGE_SIZE = 400
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
 EASE_DISPLAY_SPEED = True
-DISPLAY_FRAMERATE = 1
+DISPLAY_FRAMERATE = 30
 MAX_QUEUE_SIZE = 200 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 1 # Amount of seconds to wait when queue is full
 
@@ -137,6 +137,7 @@ class Camera:
         self.frame_index = 0
         self.running = False
         self.producer_thread = None
+        self.last_output_frame: cv2.typing.MatLike = None
         
     def get_frame(self):
         try:
@@ -145,6 +146,83 @@ class Camera:
             return frame, results
         except queue.Empty:
             return None
+    
+    def render_frame(self):
+        frame, results = self.get_frame()
+                
+        
+            
+        
+        
+        
+        # results = camera.get_frame_results(frame)
+        
+        output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
+        output_frame_height = PREVIEW_IMAGE_SIZE
+        output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
+        x_scale = output_frame_width / self.adjusted_width
+        y_scale = output_frame_height / self.adjusted_height
+        
+        log(f"I got {len(results)} results?")
+        
+        if len(results) > 0:
+            result = results[0]
+            if result.boxes is not None:
+                boxes = result.boxes.xywh.cpu()
+                self.track_ids = None
+                if result.boxes.id is not None:
+                    self.track_ids = result.boxes.id.cpu().numpy().astype(int)
+                
+                cv2.putText(output_frame, 'Camera: ' + self.name, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                
+                for box_index, box in enumerate(boxes):
+                    x_center, y_center, box_width, box_height = box
+                    
+                    if self.track_ids is not None:
+                        track_id = self.track_ids[box_index]
+                        
+                        if self.register_bottle(x_center, y_center, track_id):
+                            log("Bottle got accepted as being new.")
+                        
+                        # Render box on frame
+                        scaled_x_center = int(x_center * x_scale)
+                        scaled_y_center = int(y_center * y_scale)
+                        scaled_box_width = int(box_width * x_scale)
+                        scaled_box_height = int(box_height * y_scale)
+                        
+                        x1 = int(scaled_x_center - scaled_box_width / 2)
+                        y1 = int(scaled_y_center - scaled_box_height / 2)
+                        x2 = int(scaled_x_center + scaled_box_width / 2)
+                        y2 = int(scaled_y_center + scaled_box_height / 2)
+                        
+                        # Ensure coordinates are within frame bounds
+                        x1 = max(0, min(x1, output_frame_width - 1))
+                        y1 = max(0, min(y1, output_frame_height - 1))
+                        x2 = max(0, min(x2, output_frame_width - 1))
+                        y2 = max(0, min(y2, output_frame_height - 1))
+                        
+                        thickness = 2
+                        color = (255, 0, 0)
+                        cv2.rectangle(output_frame, (x1, y1), (x2, y2), color, thickness)
+                        
+                        def draw_bottle_id(color):
+                            cv2.putText(output_frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+                            
+                        
+                        if track_id in self.temporary_bottles:
+                            bottle = self.temporary_bottles[track_id]
+                            draw_bottle_id((0, 0, 255))
+                        if track_id in self.bottles:
+                            bottle = self.bottles[track_id]
+                            draw_bottle_id((255, 255, 0) if bottle.was_corrected else (0, 255, 0))
+                
+                self.last_output_frame = output_frame
+                
+                if SAVE_VIDEO:
+                    self.out.write(output_frame)
+                    
+        self.finish_frame()
+        return self.last_output_frame
         
         # As
     def get_ready_frames_count(self):
@@ -268,10 +346,10 @@ class BottleTracker:
         self.track_ids = []
     
     def run(self):
+        # frames: dict[Camera, cv2.typing.MatLike] = []
         for camera in self.cameras:
             camera.start_preprocessing()
         while True:
-            
             frames = []
             
             for camera_index, camera in enumerate(self.cameras):
@@ -281,74 +359,77 @@ class BottleTracker:
                     log(f"Done. {camera.processed_frame_count} frames processed.")
                     break
                     
-                
+                frames.append(camera.render_frame())
                 
                 
                 # results = camera.get_frame_results(frame)
                 
-                output_frame_width = int(PREVIEW_IMAGE_SIZE * camera.aspect_ratio)
-                output_frame_height = PREVIEW_IMAGE_SIZE
-                output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
-                x_scale = output_frame_width / camera.adjusted_width
-                y_scale = output_frame_height / camera.adjusted_height
+                # output_frame_width = int(PREVIEW_IMAGE_SIZE * camera.aspect_ratio)
+                # output_frame_height = PREVIEW_IMAGE_SIZE
+                # output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
+                # x_scale = output_frame_width / camera.adjusted_width
+                # y_scale = output_frame_height / camera.adjusted_height
                 
+                # log(f"I got {len(results)} results?")
                 
-                for result in results:
-                    if result.boxes is not None:
-                        boxes = result.boxes.xywh.cpu()
-                        self.track_ids = None
-                        if result.boxes.id is not None:
-                            self.track_ids = result.boxes.id.cpu().numpy().astype(int)
+                # if len(results) > 0:
+                #     result = results[0]
+                #     if result.boxes is not None:
+                #         boxes = result.boxes.xywh.cpu()
+                #         self.track_ids = None
+                #         if result.boxes.id is not None:
+                #             self.track_ids = result.boxes.id.cpu().numpy().astype(int)
                         
-                        cv2.putText(output_frame, 'Camera: ' + camera.name, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                #         cv2.putText(output_frame, 'Camera: ' + camera.name, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
                         
-                        for box_index, box in enumerate(boxes):
-                            x_center, y_center, box_width, box_height = box
+                #         for box_index, box in enumerate(boxes):
+                #             x_center, y_center, box_width, box_height = box
                             
-                            if self.track_ids is not None:
-                                track_id = self.track_ids[box_index]
+                #             if self.track_ids is not None:
+                #                 track_id = self.track_ids[box_index]
                                 
-                                if camera.register_bottle(x_center, y_center, track_id):
-                                    log("Bottle got accepted as being new.")
+                #                 if camera.register_bottle(x_center, y_center, track_id):
+                #                     log("Bottle got accepted as being new.")
                                 
-                                # Render box on frame
-                                scaled_x_center = int(x_center * x_scale)
-                                scaled_y_center = int(y_center * y_scale)
-                                scaled_box_width = int(box_width * x_scale)
-                                scaled_box_height = int(box_height * y_scale)
+                #                 # Render box on frame
+                #                 scaled_x_center = int(x_center * x_scale)
+                #                 scaled_y_center = int(y_center * y_scale)
+                #                 scaled_box_width = int(box_width * x_scale)
+                #                 scaled_box_height = int(box_height * y_scale)
                                 
-                                x1 = int(scaled_x_center - scaled_box_width / 2)
-                                y1 = int(scaled_y_center - scaled_box_height / 2)
-                                x2 = int(scaled_x_center + scaled_box_width / 2)
-                                y2 = int(scaled_y_center + scaled_box_height / 2)
+                #                 x1 = int(scaled_x_center - scaled_box_width / 2)
+                #                 y1 = int(scaled_y_center - scaled_box_height / 2)
+                #                 x2 = int(scaled_x_center + scaled_box_width / 2)
+                #                 y2 = int(scaled_y_center + scaled_box_height / 2)
                                 
-                                # Ensure coordinates are within frame bounds
-                                x1 = max(0, min(x1, output_frame_width - 1))
-                                y1 = max(0, min(y1, output_frame_height - 1))
-                                x2 = max(0, min(x2, output_frame_width - 1))
-                                y2 = max(0, min(y2, output_frame_height - 1))
+                #                 # Ensure coordinates are within frame bounds
+                #                 x1 = max(0, min(x1, output_frame_width - 1))
+                #                 y1 = max(0, min(y1, output_frame_height - 1))
+                #                 x2 = max(0, min(x2, output_frame_width - 1))
+                #                 y2 = max(0, min(y2, output_frame_height - 1))
                                 
-                                thickness = 2
-                                color = (255, 0, 0)
-                                cv2.rectangle(output_frame, (x1, y1), (x2, y2), color, thickness)
+                #                 thickness = 2
+                #                 color = (255, 0, 0)
+                #                 cv2.rectangle(output_frame, (x1, y1), (x2, y2), color, thickness)
                                 
-                                def draw_bottle_id(color):
-                                    cv2.putText(output_frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+                #                 def draw_bottle_id(color):
+                #                     cv2.putText(output_frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
                                     
                                 
-                                if track_id in camera.temporary_bottles:
-                                    bottle = camera.temporary_bottles[track_id]
-                                    draw_bottle_id((0, 0, 255))
-                                if track_id in camera.bottles:
-                                    bottle = camera.bottles[track_id]
-                                    draw_bottle_id((255, 255, 0) if bottle.was_corrected else (0, 255, 0))
+                #                 if track_id in camera.temporary_bottles:
+                #                     bottle = camera.temporary_bottles[track_id]
+                #                     draw_bottle_id((0, 0, 255))
+                #                 if track_id in camera.bottles:
+                #                     bottle = camera.bottles[track_id]
+                #                     draw_bottle_id((255, 255, 0) if bottle.was_corrected else (0, 255, 0))
                         
-                        frames.append(output_frame)
+                #         # frames.append(output_frame)
+                #         frames[Camera] = output_frame
                         
-                        if SAVE_VIDEO:
-                            camera.out.write(output_frame)
+                #         if SAVE_VIDEO:
+                #             camera.out.write(output_frame)
                             
-                camera.finish_frame()
+                # camera.finish_frame()
                                 
             # Check if all cameras agree with each other on the last bottle index
             last_bottle_indices = set()
@@ -378,11 +459,9 @@ class BottleTracker:
             self.last_frame_time = time()
             
             # Display the frame
-            if not len(frames) > 0:
-                continue
             
             camera_count = len(self.cameras)
-            frame_rows = self.split_array(frames[:camera_count], 2)
+            frame_rows = self.split_array(frames, 2)
             row_frames = []
             for row in frame_rows:
                 while len(row) < 2:

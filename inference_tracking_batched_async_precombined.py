@@ -19,7 +19,7 @@ MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 IMAGE_SIZE = 160
 BATCH_SIZE = 70
 SKIP_FRAMES = 8 # Skip this many frames between each processing step
-TEMPORAL_CUTOFF_THRESHOLD = 20  # Amount of frames a bottle needs to be seen to be considered tracked.
+TEMPORAL_CUTOFF_THRESHOLD = 40  # Amount of frames a bottle needs to be seen to be considered tracked.
 BOTTLE_DISAGREEMENT_TOLERANCE = 15  # Amount of frames the cameras can disagree before correction is applied.
 SEQUENTIAL_CORRECTION_THRESHOLD = 3 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
 ENFORCE_INCREMENTAL_CORRECTION = False # Make sure the corrected index is unique.
@@ -360,10 +360,11 @@ class BottleTracker:
         output_frames = inference_frames
         skipped_frameses = []
         finished = False
-        log(f"Running inference on batch of {len(inference_frames)} frames.")
         if len(inference_frames) == 0:
             return True
+        log(f"Running inference on batch of {len(inference_frames)} frames.")
         resultses = self.model.track(inference_frames, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
+        log("Finished inferencing")
         # self.frame_count += num_frames
         for i, results in enumerate(resultses):
             if RENDER_SKIPPED_FRAMES and self.last_results is not None:
@@ -396,6 +397,7 @@ class BottleTracker:
             target_height = self.inference_height // 2
             target_width = self.inference_width // 2
             
+            self.combined_frame = np.zeros((self.inference_height, self.inference_width, 3), dtype=np.uint8)
             # frames = []
             # Sequential but optimized reading
             for i, camera in enumerate(self.cameras):
@@ -422,7 +424,7 @@ class BottleTracker:
             #             frames.append(frame)
                 
                 # return self._combine_pre_resized_frames(frames)
-                return self.combined_frame
+            return self.combined_frame
         except queue.Empty:
             return None
 

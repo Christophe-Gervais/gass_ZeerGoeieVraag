@@ -17,7 +17,7 @@ MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 
 # Algorithm options
 IMAGE_SIZE = 80
-BATCH_SIZE = 200
+BATCH_SIZE = 100
 SKIP_FRAMES = 10 # Skip this many frames between each processing step
 TEMPORAL_CUTOFF_THRESHOLD = 6  # Amount of frames a bottle needs to be seen to be considered tracked.
 BOTTLE_DISAGREEMENT_TOLERANCE = 15  # Amount of frames the cameras can disagree before correction is applied.
@@ -30,14 +30,15 @@ PREVIEW_IMAGE_SIZE = 400
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
 EASE_DISPLAY_SPEED = True
-DISPLAY_FRAMERATE = 15
-MAX_QUEUE_SIZE = 600 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
+DISPLAY_FRAMERATE = 5
+MAX_QUEUE_SIZE = 300 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 1 # Amount of seconds to wait when queue is full
+RENDER_SKIPPED_FRAMES = True
 
 # Logging options
 VERBOSE_YOLO = False
 VERBOSE_LOGS = True
-VERBOSE_BLAB = True
+VERBOSE_BLAB = False
 
 def log(*values: object, **kwargs):
     if not VERBOSE_LOGS: return
@@ -98,7 +99,7 @@ class Camera:
                 ret, frame = self.cap.read()
                 if not ret:
                     return False
-            blabber("Finished skipping frames.")
+            # blabber("Finished skipping frames.")
         return True
     
     def __init__(self, name: str, video_path: str, start_delay: int = 0, start_index: int = 0):
@@ -255,16 +256,19 @@ class Camera:
         output_frames = []
         finished = False
         for _ in range(num_frames):
+            # frames_skipped = 0
             # while not self.should_process_frame():
             #     blabber("Skipping frame")
-            #     self.frame_count += 1
             #     self.cap.read()
+            #     frames_skipped += 1
+            #     self.frame_count += 1
+            self.skip_frames(self.get_allowed_frame_skip() - 1)
             ret, frame = self.cap.read()
             
             self.frame_count += 1
-            if not self.should_process_frame():
-                blabber("Skipping frame after read")
-                continue
+            # if not self.should_process_frame():
+            #     blabber("Skipping frame after read")
+            #     continue
             
             if not ret:
                 log("No more frames to read from video.")

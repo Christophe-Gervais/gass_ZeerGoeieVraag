@@ -19,12 +19,13 @@ MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 # Algorithm options
 IMAGE_SIZE = 160
 BATCH_SIZE = 70
-SKIP_FRAMES = 1 # Skip this many frames between each processing step
+SKIP_FRAMES = 8 # Skip this many frames between each processing step
 TEMPORAL_CUTOFF_THRESHOLD = 20  # Amount of frames a bottle needs to be seen to be considered tracked.
-BOTTLE_DISAGREEMENT_TOLERANCE = 15  # Amount of frames the cameras can disagree before correction is applied.
+BOTTLE_DISAGREEMENT_TOLERANCE = 5  # Amount of frames the cameras can disagree before correction is applied.
 SEQUENTIAL_CORRECTION_THRESHOLD = 3 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
 ENFORCE_INCREMENTAL_CORRECTION = False # Make sure the corrected index is unique.
 EXTRA_CORRECTION = False # Allow correcting half the feed if one half disagrees with itself.
+LOWER_DISPUTE_CORRECTION = True
 
 # Preview options
 PREVIEW_IMAGE_SIZE = 640
@@ -348,6 +349,9 @@ class BottleTracker:
         return frames
     
     def pregenerate_batch_frames(self, num_frames: int):
+        
+        self.wait_if_queue_full(self.batch_queue)
+        
         more = True
         frames = []
         meter = PerformanceMeter()
@@ -366,12 +370,15 @@ class BottleTracker:
         self.batch_queue.put(frames)
         return more
     
+    def wait_if_queue_full(self, queue: queue.Queue):
+        if MAX_QUEUE_SIZE > 0:
+            while queue.qsize() > MAX_QUEUE_SIZE - BATCH_SIZE:
+                sleep(QUEUE_SIZE_CHECK_INTERVAL)
+    
     def preprocess_frames(self):
         
         # Limit the queue size
-        if MAX_QUEUE_SIZE > 0:
-            while self.frame_queue.qsize() > MAX_QUEUE_SIZE - BATCH_SIZE:
-                sleep(QUEUE_SIZE_CHECK_INTERVAL)
+        self.wait_if_queue_full(self.frame_queue)
                 
         log(f"Queue freed up.")
         
@@ -653,7 +660,7 @@ class BottleTracker:
             log("Warning: I can't correct to an index that was used before. Incrementing might skip an index but ensures all indexes link to one bottle.")
             most_common_index = self.last_corrected_index + 1
         
-        if most_common_count > len(self.cameras) / 2 or (EXTRA_CORRECTION and most_common_count == len(self.cameras) / 2):
+        if most_common_count > len(self.cameras) / 2 or (EXTRA_CORRECTION and most_common_count == len(self.cameras) / 2) or (LOWER_DISPUTE_CORRECTION and most_common_count > 1 and all(most_common_index <= x for x in index_counts)):
             log("Majority agreement found, correcting outcast.")
             self.last_corrected_index = most_common_index
             for camera in self.cameras:

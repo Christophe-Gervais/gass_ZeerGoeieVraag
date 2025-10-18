@@ -331,10 +331,12 @@ class BottleTracker:
         self.frame_queue: queue.Queue[cv2.typing.MatLike] = queue.Queue()
         
         self.aspect_ratio = cameras[0].aspect_ratio
-        self.adjusted_width = int(IMAGE_SIZE * self.aspect_ratio)
-        self.adjusted_height = IMAGE_SIZE
+        self.inference_width = int(IMAGE_SIZE * self.aspect_ratio)
+        self.inference_height = IMAGE_SIZE
         
         self.model = YOLO(MODEL_PATH)
+        
+        self.calculate_camera_stack_rects()
         # self.camera_stack_coordinates = []
     
     def preprocess_frames(self, num_frames: int):
@@ -358,7 +360,7 @@ class BottleTracker:
                 finished = False
                 break
             # log(self.adjusted_width, self.adjusted_height)
-            inference_frame = cv2.resize(frame, (self.adjusted_width, self.adjusted_height))
+            inference_frame = cv2.resize(frame, (self.inference_width, self.inference_height))
             
             output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
             output_frame_height = PREVIEW_IMAGE_SIZE
@@ -386,11 +388,14 @@ class BottleTracker:
     
     def calculate_camera_stack_rects(self):
         for camera_index, camera in enumerate(self.cameras):
-            x = (camera_index % 2) * camera.width
-            y = (camera_index // 2) * camera.height
-            w = camera.width
-            h = camera.height
+            width = self.inference_width // 2
+            height = self.inference_height // 2
+            x = (camera_index % 2) * width
+            y = (camera_index // 2) * height
+            w = width
+            h = height
             camera.stack_rect = (x, y, w, h)
+            log(f"Camera {camera.name} stack rect: {camera.stack_rect}")
     
     def get_combined_frame(self):
         try:
@@ -413,7 +418,7 @@ class BottleTracker:
         
             combined_frame = np.vstack(row_frames)
             
-            combined_frame = cv2.resize(combined_frame, (self.adjusted_width, self.adjusted_height))
+            combined_frame = cv2.resize(combined_frame, (self.inference_width, self.inference_height))
             
             return combined_frame
             
@@ -428,6 +433,31 @@ class BottleTracker:
         except queue.Empty:
             return None
     
+    def draw_rect_on_frame(self, frame, x_center, y_center, box_width, box_height, scale):
+        
+        output_frame_width = frame.shape[1]
+        output_frame_height = frame.shape[0]
+        
+        scaled_x_center = int(x_center * scale)
+        scaled_y_center = int(y_center * scale)
+        scaled_box_width = int(box_width * scale)
+        scaled_box_height = int(box_height * scale)
+        
+        x1 = int(scaled_x_center - scaled_box_width / 2)
+        y1 = int(scaled_y_center - scaled_box_height / 2)
+        x2 = int(scaled_x_center + scaled_box_width / 2)
+        y2 = int(scaled_y_center + scaled_box_height / 2)
+        
+        # Ensure coordinates are within frame bounds
+        x1 = max(0, min(x1, output_frame_width - 1))
+        y1 = max(0, min(y1, output_frame_height - 1))
+        x2 = max(0, min(x2, output_frame_width - 1))
+        y2 = max(0, min(y2, output_frame_height - 1))
+        
+        thickness = 2
+        color = (255, 0, 0)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
+    
     def run(self):
         # frames: dict[Camera, cv2.typing.MatLike] = []
         while True:
@@ -441,7 +471,7 @@ class BottleTracker:
             output_frame_height = PREVIEW_IMAGE_SIZE
             output_frame = cv2.resize(combined_frame, (output_frame_width, output_frame_height))
 
-            scale = output_frame_height / self.adjusted_height
+            scale = output_frame_height / self.inference_height
             
             for result in results:
                 # Get results inside the camera stack frame rect
@@ -474,25 +504,7 @@ class BottleTracker:
                                 if camera.register_bottle(relative_x, relative_y, track_id):
                                     log("Bottle got accepted as being new.")
                                 # Render box on frame
-                                scaled_x_center = int(x_center * scale)
-                                scaled_y_center = int(y_center * scale)
-                                scaled_box_width = int(box_width * scale)
-                                scaled_box_height = int(box_height * scale)
-                                
-                                x1 = int(scaled_x_center - scaled_box_width / 2)
-                                y1 = int(scaled_y_center - scaled_box_height / 2)
-                                x2 = int(scaled_x_center + scaled_box_width / 2)
-                                y2 = int(scaled_y_center + scaled_box_height / 2)
-                                
-                                # Ensure coordinates are within frame bounds
-                                x1 = max(0, min(x1, output_frame_width - 1))
-                                y1 = max(0, min(y1, output_frame_height - 1))
-                                x2 = max(0, min(x2, output_frame_width - 1))
-                                y2 = max(0, min(y2, output_frame_height - 1))
-                                
-                                thickness = 2
-                                color = (255, 0, 0)
-                                cv2.rectangle(output_frame, (x1, y1), (x2, y2), color, thickness)
+                                self.draw_rect_on_frame(output_frame, abs_x_center, abs_y_center, box_width, box_height, scale)
                 
                 
                 

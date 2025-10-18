@@ -10,15 +10,15 @@ from time import time, sleep
 # Input options
 MODEL_PATH = "runs/detect/train26/weights/best.pt"
 INPUT_VIDEO_FPS = 60
-EXTRA_CAMERA_DELAY = 0  # Delay in seconds
+EXTRA_CAMERA_DELAY = 1  # Delay in seconds
 MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 
 # Algorithm options
 IMAGE_SIZE = 160
-BATCH_SIZE = 50
-SKIP_FRAMES = 8 # Skip this many frames between each processing step
-TEMPORAL_CUTOFF_THRESHOLD = 15  # Amount of frames a bottle needs to be seen to be considered tracked.
-BOTTLE_DISAGREEMENT_TOLERANCE = 30  # Amount of frames the cameras can disagree before correction is applied.
+BATCH_SIZE = 70
+SKIP_FRAMES = 10 # Skip this many frames between each processing step
+TEMPORAL_CUTOFF_THRESHOLD = 20  # Amount of frames a bottle needs to be seen to be considered tracked.
+BOTTLE_DISAGREEMENT_TOLERANCE = 15  # Amount of frames the cameras can disagree before correction is applied.
 SEQUENTIAL_CORRECTION_THRESHOLD = 3 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
 ENFORCE_INCREMENTAL_CORRECTION = False # Make sure the corrected index is unique.
 EXTRA_CORRECTION = False # Allow correcting half the feed if one half disagrees with itself.
@@ -27,12 +27,14 @@ EXTRA_CORRECTION = False # Allow correcting half the feed if one half disagrees 
 PREVIEW_IMAGE_SIZE = 640
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
-EASE_DISPLAY_SPEED = True
 DISPLAY_FRAMERATE = 15
 MAX_QUEUE_SIZE = 1000 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 0.1 # Amount of seconds to wait when queue is full
 RENDER_SKIPPED_FRAMES = False # Whether to render skipped frames in between processed frames
 SKIPPED_IMAGE_SIZE = 200
+EASE_DISPLAY_SPEED = True
+INCREASE_SPEED_AT = 150 # Speed up frame pacing when enough frames are queued
+
 
 # Logging options
 VERBOSE_YOLO = False # Show YOLO debug info
@@ -158,90 +160,6 @@ class Camera:
         
         self.disagreement_count = 0
         
-    def get_frame(self):
-        try:
-            frame = self.frame_queue.get()
-            results = self.results_queue.get()
-            # log(f"Camera {self.name}: Retrieved frame {self.frame_queue.qsize()} items remaining.")
-            return frame, results
-        except queue.Empty:
-            return None
-    
-    def render_frame(self):
-        frame, results = self.get_frame()
-        
-        output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
-        output_frame_height = PREVIEW_IMAGE_SIZE
-        
-        frame = cv2.resize(frame, (output_frame_width, output_frame_height))
-        # output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
-        x_scale = output_frame_width / self.adjusted_width
-        y_scale = output_frame_height / self.adjusted_height
-        
-        blabber(f"I got {len(results)} results? Yes bru")
-        
-        for result in results:
-            if result.boxes is not None:
-                boxes = result.boxes.xywh.cpu()
-                self.track_ids = None
-                if result.boxes.id is not None:
-                    self.track_ids = result.boxes.id.cpu().numpy().astype(int)
-                
-                cv2.putText(frame, 'Camera: ' + self.name, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-                
-                for box_index, box in enumerate(boxes):
-                    x_center, y_center, box_width, box_height = box
-                    
-                    if self.track_ids is not None:
-                        track_id = self.track_ids[box_index]
-                        
-                        if self.register_bottle(x_center, y_center, track_id):
-                            log("Bottle got accepted as being new.")
-                        
-                        # Render box on frame
-                        scaled_x_center = int(x_center * x_scale)
-                        scaled_y_center = int(y_center * y_scale)
-                        scaled_box_width = int(box_width * x_scale)
-                        scaled_box_height = int(box_height * y_scale)
-                        
-                        x1 = int(scaled_x_center - scaled_box_width / 2)
-                        y1 = int(scaled_y_center - scaled_box_height / 2)
-                        x2 = int(scaled_x_center + scaled_box_width / 2)
-                        y2 = int(scaled_y_center + scaled_box_height / 2)
-                        
-                        # Ensure coordinates are within frame bounds
-                        x1 = max(0, min(x1, output_frame_width - 1))
-                        y1 = max(0, min(y1, output_frame_height - 1))
-                        x2 = max(0, min(x2, output_frame_width - 1))
-                        y2 = max(0, min(y2, output_frame_height - 1))
-                        
-                        thickness = 2
-                        color = (255, 0, 0)
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
-                        
-                        def draw_bottle_id(color):
-                            cv2.putText(frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
-                            
-                        
-                        if track_id in self.temporary_bottles:
-                            bottle = self.temporary_bottles[track_id]
-                            draw_bottle_id((0, 0, 255))
-                        if track_id in self.bottles:
-                            bottle = self.bottles[track_id]
-                            draw_bottle_id((255, 255, 0) if bottle.was_corrected else (0, 255, 0))
-                
-        
-        if VERBOSE_DBUG:
-            cv2.putText(frame, f'Queue size: {self.get_ready_frames_count()}', (10, output_frame_height - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)        
-        
-        self.last_output_frame = frame
-        
-        if SAVE_VIDEO:
-            self.out.write(frame)
-            
-        self.finish_frame()
-        return self.last_output_frame
-        
         # As
     def get_ready_frames_count(self):
         return self.frame_queue.qsize()
@@ -341,9 +259,12 @@ class BottleTracker:
         self.model = YOLO(MODEL_PATH)
         
         self.calculate_camera_stack_rects()
+        
+        self.batch_thread = None
+        self.inference_thread = None
         # self.camera_stack_coordinates = []
     
-    def get_ready_frames_count(self):
+    def ready_frames_count(self):
         return self.frame_queue.qsize()
     
     def _inference_processing_worker(self):
@@ -424,29 +345,6 @@ class BottleTracker:
         output_frames = inference_frames
         skipped_frameses = []
         finished = False
-        # for _ in range(num_frames):
-        #     # log(f"Starting skipping frames.")
-        #     skipped_frames = self.skip_frames(self.get_allowed_frame_skip() - 1, collect_skipped=RENDER_SKIPPED_FRAMES)
-        #     skipped_frameses.append(skipped_frames)
-        #     # ret, frame = self.cap.read()
-            
-        #     # log(f"Starting getting combined frame.")
-        #     frame = self.get_combined_frame()
-        #     log(f"Got combined frame.")
-            
-        #     if frame is None:
-        #         log("No more frames to read.")
-        #         finished = False
-        #         break
-        #     # log(self.adjusted_width, self.adjusted_height)
-        #     # inference_frame = cv2.resize(frame, (self.inference_width, self.inference_height))
-            
-        #     output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
-        #     output_frame_height = PREVIEW_IMAGE_SIZE
-        #     output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
-            
-        #     inference_frames.append(frame)
-        #     output_frames.append(frame)
         log(f"Running inference on batch of {len(inference_frames)} frames.")
         if len(inference_frames) == 0:
             return True
@@ -548,10 +446,15 @@ class BottleTracker:
         now = time()
         time_passed = now - self.last_frame_time
         min_time_passed = 1 / DISPLAY_FRAMERATE
+        
+        if EASE_DISPLAY_SPEED:
+            if self.ready_frames_count() > INCREASE_SPEED_AT:
+                min_time_passed *= 0.5
+        
         if time_passed < min_time_passed:
             sleep_time = min_time_passed - time_passed
             if sleep_time > 0:
-                queued_frames = self.get_ready_frames_count()
+                queued_frames = self.ready_frames_count()
                 blabber(f"I'm being rate limited. {queued_frames} frames are already prepared. Sleeping for {sleep_time} seconds...")
                 sleep(sleep_time)
         
@@ -682,81 +585,7 @@ class BottleTracker:
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
                 break
-            elif key == ord('p'):
-                cv2.waitKey(-1)
-                
-            self.window_was_open = True
-    
-
-        # for camera in self.cameras:
-        #     camera.start_preprocessing()
-        while True:
-            frames = []
-            
-            for camera_index, camera in enumerate(self.cameras):
-                frame, results = camera.get_frame()
-                
-                if camera.processed_frame_count >= MAX_FRAMES or not camera.is_open():
-                    log(f"Done. {camera.processed_frame_count} frames processed.")
-                    break
-                    
-                frames.append(camera.render_frame())
-                                
-            # Check if all cameras agree with each other on the last bottle index
-            last_bottle_indices = set()
-            for camera in self.cameras:
-                if camera.last_registered_bottle is not None:
-                    last_bottle_indices.add(camera.last_registered_bottle.index)
-            
-            if len(last_bottle_indices) > 1:
-                # log("Warning: Cameras disagree on last registered bottle indices:", last_bottle_indices, "Camera number:", camera_index)
-                self.camera_disagreement_counts[camera_index] = self.camera_disagreement_counts.get(camera_index, 0) + 1
-                
-                if self.camera_disagreement_counts[camera_index] >= BOTTLE_DISAGREEMENT_TOLERANCE:
-                    self.correct_index_disagreements()
-                
-            
-            # If the last frame was displayed recently, wait
-            now = time()
-            time_passed = now - self.last_frame_time
-            min_time_passed = 1 / DISPLAY_FRAMERATE
-            if time_passed < min_time_passed:
-                sleep_time = min_time_passed - time_passed
-                if sleep_time > 0:
-                    queued_frames = camera.get_ready_frames_count()
-                    blabber(f"I'm being rate limited. {queued_frames} frames are already prepared. Sleeping for {sleep_time} seconds...")
-                    sleep(sleep_time)
-            
-            self.last_frame_time = time()
-            
-            if self.window_was_open and self.is_window_closed(PREVIEW_WINDOW_NAME):
-                log("Window closed, exiting.")
-                break
-            
-            # Display the frame
-            try:
-                camera_count = len(self.cameras)
-                frame_rows = self.split_array(frames, 2)
-                row_frames = []
-                for row in frame_rows:
-                    while len(row) < 2:
-                        row.append(np.zeros_like(row[0]))
-                    row_frame = np.hstack(row)
-                    row_frames.append(row_frame)
-            
-                combined_frame = np.vstack(row_frames)
-                cv2.imshow(PREVIEW_WINDOW_NAME, combined_frame)
-            except:
-                log("Error combining frames for preview:")
-                # combined_frame = np.hstack(frames)
-            
-                
-            
-
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                break
-            elif key == ord('p'):
+            elif key == ord('p') or key == ord(' '):
                 cv2.waitKey(-1)
                 
             self.window_was_open = True
@@ -809,6 +638,7 @@ class BottleTracker:
         except: return True
 
     def release(self):
+        self.stop_preprocessing()
         for camera in self.cameras: camera.release()
         cv2.destroyAllWindows()
 

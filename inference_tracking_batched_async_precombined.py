@@ -5,8 +5,9 @@ import numpy as np
 from collections import Counter
 import threading
 import queue
-from time import time, sleep
+from time import time, sleep, perf_counter
 import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
 
 
 # Input options
@@ -18,7 +19,7 @@ MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 # Algorithm options
 IMAGE_SIZE = 160
 BATCH_SIZE = 70
-SKIP_FRAMES = 8 # Skip this many frames between each processing step
+SKIP_FRAMES = 1 # Skip this many frames between each processing step
 TEMPORAL_CUTOFF_THRESHOLD = 40  # Amount of frames a bottle needs to be seen to be considered tracked.
 BOTTLE_DISAGREEMENT_TOLERANCE = 15  # Amount of frames the cameras can disagree before correction is applied.
 SEQUENTIAL_CORRECTION_THRESHOLD = 3 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
@@ -34,15 +35,16 @@ MAX_QUEUE_SIZE = 1000 # The limit for the queue size, set to -1 to disable limit
 QUEUE_SIZE_CHECK_INTERVAL = 0.1 # Amount of seconds to wait when queue is full
 RENDER_SKIPPED_FRAMES = False # Whether to render skipped frames in between processed frames
 SKIPPED_IMAGE_SIZE = 200
-EASE_DISPLAY_SPEED = True
-INCREASE_SPEED_AT = 150 # Speed up frame pacing when enough frames are queued
-SPEED_MULTIPLIER = 0.8
+MAXIMIZE_DISPLAY_SPEED = True # Speed up display when enough frames are queued
+INCREASE_SPEED_AT = 150 # If more than this many frames are queued, increase display speed
+SPEED_MULTIPLIER = 0.7 # How much to speed up when easing display speed
 
 # Logging options
 VERBOSE_YOLO = False # Show YOLO debug info
 VERBOSE_LOGS = True # Show general info
 VERBOSE_BLAB = False # Show detailed debug info
 VERBOSE_DBUG = True # Show debug info
+VERBOSE_PERF = True
 
 def log(*values: object, **kwargs):
     if not VERBOSE_LOGS: return
@@ -243,7 +245,16 @@ class Camera:
             log(f"I, Camera {self.name}, was wrong {self.sequential_correction_count} in a row. I really thought I was right but I guess I wasn't. As punishment I will correct myself, remember that the correct index from now on is {corrected_index} and I will try my best to never do this again. I'm so sorry.")
 
 
+class PerformanceMeter:
+    def __init__(self):
+        self.start_time = perf_counter()
     
+    def elapsed(self):
+        return perf_counter() - self.start_time
+    
+    def log_elapsed(self, message: str):
+        if VERBOSE_PERF:
+            print(message, f"took {self.elapsed()} seconds.")
 
 class BottleTracker:
     cameras: list[Camera]
@@ -283,13 +294,13 @@ class BottleTracker:
     
     def _inference_processing_worker(self):
         blabber("Starting inference preprocessing.")
-        while not self.preprocess_frames(BATCH_SIZE):
+        while not self.preprocess_frames():
             blabber(f"Processed a batch of {BATCH_SIZE} images")
             pass
         
     def _batch_processing_worker(self):
         blabber("Starting batch preprocessing.")
-        while not self.pregenerate_batch_frames(BATCH_SIZE):
+        while self.pregenerate_batch_frames(BATCH_SIZE):
             blabber(f"Prepared a batch of {BATCH_SIZE} images")
             pass
     
@@ -322,7 +333,7 @@ class BottleTracker:
                 
             if collect_skipped:
                 for _ in range(frames_to_skip):
-                    frame = self.get_combined_frame()
+                    frame = self.get_combined_frame_parallel()
                     if frame is None:
                         return frames
                     output_frame_width = int(SKIPPED_IMAGE_SIZE * self.aspect_ratio)
@@ -337,17 +348,31 @@ class BottleTracker:
         return frames
     
     def pregenerate_batch_frames(self, num_frames: int):
+        more = True
         frames = []
+        meter = PerformanceMeter()
         for _ in range(num_frames):
+            meter = PerformanceMeter()
             self.skip_frames(self.get_allowed_frame_skip() - 1, collect_skipped=RENDER_SKIPPED_FRAMES)
+            # log(f"Skipping took {meter.elapsed()} seconds.")
+            # for camera in self.cameras:
+            #     frame_num = camera.cap.get(cv2.CAP_PROP_POS_FRAMES)
+            #     camera.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num + SKIP_FRAMES - 1)
+            meter = PerformanceMeter()
             frame = self.get_combined_frame()
+            meter.log_elapsed("Combining frames")
+            # log(f"Combining frames took {meter.elapsed()} seconds.")
             if frame is None:
+                more = False
                 break
             frames.append(frame)
-        log("Batch generated")
+        
+        meter.log_elapsed("Batch generation")
+        # log(f"Batch generated. Took {meter.elapsed()} seconds.")
         self.batch_queue.put(frames)
+        return more
     
-    def preprocess_frames(self, num_frames: int):
+    def preprocess_frames(self):
         
         # Limit the queue size
         if MAX_QUEUE_SIZE > 0:
@@ -363,8 +388,11 @@ class BottleTracker:
         if len(inference_frames) == 0:
             return True
         log(f"Running inference on batch of {len(inference_frames)} frames.")
+        meter = PerformanceMeter()
         resultses = self.model.track(inference_frames, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
-        log("Finished inferencing")
+        elapsed_time = meter.elapsed()
+        ips = BATCH_SIZE / elapsed_time
+        log(f"Finished inferencing. Took {meter.elapsed()} seconds for {BATCH_SIZE} images ({ips} images/s).")
         # self.frame_count += num_frames
         for i, results in enumerate(resultses):
             if RENDER_SKIPPED_FRAMES and self.last_results is not None:
@@ -397,7 +425,7 @@ class BottleTracker:
             target_height = self.inference_height // 2
             target_width = self.inference_width // 2
             
-            self.combined_frame = np.zeros((self.inference_height, self.inference_width, 3), dtype=np.uint8)
+            # self.combined_frame = np.zeros((self.inference_height, self.inference_width, 3), dtype=np.uint8)
             # frames = []
             # Sequential but optimized reading
             for i, camera in enumerate(self.cameras):
@@ -414,40 +442,46 @@ class BottleTracker:
                     x = col * target_width
                     self.combined_frame[y:y+target_height, x:x+target_width] = frame
             
-            # with concurrent.futures.ThreadPoolExecutor() as executor:
-            #     future_to_camera = {executor.submit(camera.get_inference_frame): camera 
-            #                     for camera in self.cameras}
-            #     frames = []
-            #     for future in concurrent.futures.as_completed(future_to_camera):
-            #         frame = future.result()
-            #         if frame is not None:
-            #             frames.append(frame)
                 
                 # return self._combine_pre_resized_frames(frames)
             return self.combined_frame
         except queue.Empty:
             return None
-
-    # def _combine_pre_resized_frames(self, frames):
-    #     if not frames:
-    #         return None
-        
-    #     # Create combined frame
-        
-        
-        
-        
-    #     # Fill frames directly (frames are already resized)
-    #     for i, frame in enumerate(frames):
-    #         if i >= 4:
-    #             break
-    #         row = i // 2
-    #         col = i % 2
-    #         y = row * target_height
-    #         x = col * target_width
-    #         self.combined_frame[y:y+target_height, x:x+target_width] = frame
-        
-    #     return self.combined_frame
+    
+    def get_combined_frame_parallel(self):
+        try:
+            target_height = self.inference_height // 2
+            target_width = self.inference_width // 2
+            
+            if not hasattr(self, 'combined_frame'):
+                self.combined_frame = np.zeros((self.inference_height, self.inference_width, 3), dtype=np.uint8)
+            
+            # Get frames in parallel
+            frames = [None] * 4
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                future_to_idx = {
+                    executor.submit(self.cameras[i].get_inference_frame): i 
+                    for i in range(min(4, len(self.cameras)))
+                }
+                
+                for future in concurrent.futures.as_completed(future_to_idx):
+                    idx = future_to_idx[future]
+                    try:
+                        frame = future.result()
+                        if frame is not None:
+                            resized_frame = cv2.resize(frame, (target_width, target_height))
+                            row = idx // 2
+                            col = idx % 2
+                            y = row * target_height
+                            x = col * target_width
+                            self.combined_frame[y:y+target_height, x:x+target_width] = resized_frame
+                    except Exception as e:
+                        log(f"Camera {idx} failed: {e}")
+            
+            return self.combined_frame
+        except Exception as e:
+            log(f"Combined frame error: {e}")
+            return None
     
     def draw_rect_on_frame(self, frame, x_center, y_center, box_width, box_height, scale, bottle: Bottle = None, id_color=(255, 0, 0)):
         
@@ -484,7 +518,7 @@ class BottleTracker:
         time_passed = now - self.last_frame_time
         min_time_passed = 1 / DISPLAY_FRAMERATE
         
-        if EASE_DISPLAY_SPEED:
+        if MAXIMIZE_DISPLAY_SPEED:
             if self.ready_frames_count() > INCREASE_SPEED_AT:
                 min_time_passed *= SPEED_MULTIPLIER
         

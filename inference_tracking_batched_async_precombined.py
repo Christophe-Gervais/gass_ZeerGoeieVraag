@@ -6,6 +6,8 @@ from collections import Counter
 import threading
 import queue
 from time import time, sleep
+import concurrent.futures
+
 
 # Input options
 MODEL_PATH = "runs/detect/train26/weights/best.pt"
@@ -87,6 +89,7 @@ class Camera:
     last_registered_bottle_track_id: int = -1
     sequential_correction_count: int = 0
     
+    
     # frames: list[cv2.typing.MatLike]
     # result_queue: list
     frame_index: int
@@ -114,6 +117,13 @@ class Camera:
         ret, frame = self.cap.read()
         if not ret:
             return None
+        return frame
+    
+    def get_inference_frame(self):
+        ret, frame = self.cap.read()
+        if not ret:
+            return None
+        frame = cv2.resize(frame, (self.inference_width // 2, self.inference_height // 2))
         return frame
     
     def __init__(self, name: str, video_path: str, start_skip: int = 0, start_index: int = 0):
@@ -159,6 +169,9 @@ class Camera:
         self.stack_rect = (0, 0, self.width, self.height)
         
         self.disagreement_count = 0
+        
+        self.inference_width = int(IMAGE_SIZE * self.aspect_ratio)
+        self.inference_height = IMAGE_SIZE
         
         # As
     def get_ready_frames_count(self):
@@ -262,6 +275,7 @@ class BottleTracker:
         
         self.batch_thread = None
         self.inference_thread = None
+        self.combined_frame = np.zeros((self.inference_height, self.inference_width, 3), dtype=np.uint8)
         # self.camera_stack_coordinates = []
     
     def ready_frames_count(self):
@@ -379,17 +393,18 @@ class BottleTracker:
         try:
             log("Getting combined")
             
-            frames = []
-            # Sequential but optimized reading
-            for camera in self.cameras:
-                ret, frame = camera.cap.read()
-                if not ret:
-                    return None
-                # Resize immediately to target size
-                frame = cv2.resize(frame, (self.inference_width // 2, self.inference_height // 2))
-                frames.append(frame)
+            mm
             
-            return self._combine_pre_resized_frames(frames)
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future_to_camera = {executor.submit(camera.get_inference_frame): camera 
+                                for camera in self.cameras}
+                frames = []
+                for future in concurrent.futures.as_completed(future_to_camera):
+                    frame = future.result()
+                    if frame is not None:
+                        frames.append(frame)
+                
+                return self._combine_pre_resized_frames(frames)
         except queue.Empty:
             return None
 
@@ -398,8 +413,7 @@ class BottleTracker:
             return None
         
         # Create combined frame
-        combined_frame = np.zeros((self.inference_height, self.inference_width, 3), 
-                                dtype=np.uint8)
+        
         
         target_height = self.inference_height // 2
         target_width = self.inference_width // 2
@@ -412,9 +426,9 @@ class BottleTracker:
             col = i % 2
             y = row * target_height
             x = col * target_width
-            combined_frame[y:y+target_height, x:x+target_width] = frame
+            self.combined_frame[y:y+target_height, x:x+target_width] = frame
         
-        return combined_frame
+        return self.combined_frame
     
     def draw_rect_on_frame(self, frame, x_center, y_center, box_width, box_height, scale, bottle: Bottle = None, id_color=(255, 0, 0)):
         

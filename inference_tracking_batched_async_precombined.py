@@ -437,12 +437,18 @@ class BottleTracker:
             
             results = self.model.track(combined_frame, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
             
+            output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
+            output_frame_height = PREVIEW_IMAGE_SIZE
+            output_frame = cv2.resize(combined_frame, (output_frame_width, output_frame_height))
+
+            scale = output_frame_height / self.adjusted_height
+            
             for result in results:
                 # Get results inside the camera stack frame rect
-                
-                for camera in self.cameras:
-                    x, y, w, h = camera.stack_rect
-                    if result.boxes is not None:
+                if result.boxes is not None:
+                    for camera in self.cameras:
+                        x, y, w, h = camera.stack_rect
+                    
                         boxes = result.boxes.xywh.cpu()
                         track_ids = None
                         if result.boxes.id is not None:
@@ -451,9 +457,13 @@ class BottleTracker:
                         for box_index, box in enumerate(boxes):
                             x_center, y_center, box_width, box_height = box
                             
+                            log("Processing box at:", x_center, y_center, "for camera", camera.name)
+                            
                             # Check if the box is inside the camera's stack rect
-                            abs_x_center = x_center * self.adjusted_width
-                            abs_y_center = y_center * self.adjusted_height
+                            abs_x_center = x_center
+                            abs_y_center = y_center
+                            
+                            log("Absolute center:", abs_x_center, abs_y_center, "Camera rect:", camera.stack_rect)
                             
                             if x <= abs_x_center <= x + w and y <= abs_y_center <= y + h:
                                 relative_x = (abs_x_center - x) / w
@@ -463,7 +473,26 @@ class BottleTracker:
                                 
                                 if camera.register_bottle(relative_x, relative_y, track_id):
                                     log("Bottle got accepted as being new.")
-                    
+                                # Render box on frame
+                                scaled_x_center = int(x_center * scale)
+                                scaled_y_center = int(y_center * scale)
+                                scaled_box_width = int(box_width * scale)
+                                scaled_box_height = int(box_height * scale)
+                                
+                                x1 = int(scaled_x_center - scaled_box_width / 2)
+                                y1 = int(scaled_y_center - scaled_box_height / 2)
+                                x2 = int(scaled_x_center + scaled_box_width / 2)
+                                y2 = int(scaled_y_center + scaled_box_height / 2)
+                                
+                                # Ensure coordinates are within frame bounds
+                                x1 = max(0, min(x1, output_frame_width - 1))
+                                y1 = max(0, min(y1, output_frame_height - 1))
+                                x2 = max(0, min(x2, output_frame_width - 1))
+                                y2 = max(0, min(y2, output_frame_height - 1))
+                                
+                                thickness = 2
+                                color = (255, 0, 0)
+                                cv2.rectangle(output_frame, (x1, y1), (x2, y2), color, thickness)
                 
                 
                 
@@ -472,7 +501,7 @@ class BottleTracker:
                 # aspect_ratio = annotated_frame.shape[1] / annotated_frame.shape[0]
                 # destination_width = int(destination_height * aspect_ratio)
                 # annotated_frame = cv2.resize(annotated_frame, (destination_width, destination_height))
-                # cv2.imshow("Inference Result", annotated_frame)
+                cv2.imshow("Inference Result", output_frame)
             
             key = cv2.waitKey(0) & 0xFF
             if key == ord('q'):
@@ -611,7 +640,7 @@ def main():
         Camera('Front', 'videos/14_55/14_55_front_cropped.mp4', start_delay=0),
         
         Camera('Back Left', 'videos/14_55/14_55_back_left_cropped.mp4', start_delay=2),
-        # Camera('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_delay=1, start_index=-1),
+        # Camkera('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_delay=1, start_index=-1),
     ]
     
     bottle_tracker = BottleTracker(cameras)

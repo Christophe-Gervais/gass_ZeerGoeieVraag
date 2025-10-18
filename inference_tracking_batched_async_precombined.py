@@ -31,7 +31,7 @@ EASE_DISPLAY_SPEED = True
 DISPLAY_FRAMERATE = 20
 MAX_QUEUE_SIZE = 1000 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 0.1 # Amount of seconds to wait when queue is full
-RENDER_SKIPPED_FRAMES = True # Whether to render skipped frames in between processed frames
+RENDER_SKIPPED_FRAMES = False # Whether to render skipped frames in between processed frames
 SKIPPED_IMAGE_SIZE = 200
 
 # Logging options
@@ -331,6 +331,7 @@ class BottleTracker:
         
         self.frame_queue: queue.Queue[cv2.typing.MatLike] = queue.Queue()
         self.results_queue = queue.Queue()
+        self.batch_queue: queue.Queue[list[cv2.typing.MatLike]] = queue.Queue()
         self.last_results = None
         
         self.aspect_ratio = cameras[0].aspect_ratio
@@ -370,16 +371,30 @@ class BottleTracker:
     def skip_frames(self, frames_to_skip: int, collect_skipped: bool = False):
         frames = []
         if frames_to_skip > 0:
-            for _ in range(frames_to_skip):
-                frame = self.get_combined_frame()
-                if frame is None:
-                    return frames
-                if collect_skipped:
+                
+            if collect_skipped:
+                for _ in range(frames_to_skip):
+                    frame = self.get_combined_frame()
+                    if frame is None:
+                        return frames
                     output_frame_width = int(SKIPPED_IMAGE_SIZE * self.aspect_ratio)
                     output_frame_height = SKIPPED_IMAGE_SIZE
                     output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
                     frames.append(output_frame)
+            else:
+                for camera in self.cameras:
+                    for _ in range(frames_to_skip):
+                        if not camera.cap.grab():
+                            return frames
         return frames
+    
+    def pregenerate_combined_frames(self, num_frames: int):
+        for _ in range(num_frames):
+            frame = self.get_combined_frame()
+            if frame is None:
+                return False
+            self.inference_frame_queue.put(frame)
+        return True
     
     def preprocess_frames(self, num_frames: int):
         
@@ -395,12 +410,12 @@ class BottleTracker:
         skipped_frameses = []
         finished = False
         for _ in range(num_frames):
-            log(f"Starting skipping frames.")
+            # log(f"Starting skipping frames.")
             skipped_frames = self.skip_frames(self.get_allowed_frame_skip() - 1, collect_skipped=RENDER_SKIPPED_FRAMES)
             skipped_frameses.append(skipped_frames)
             # ret, frame = self.cap.read()
             
-            log(f"Starting getting combined frame.")
+            # log(f"Starting getting combined frame.")
             frame = self.get_combined_frame()
             log(f"Got combined frame.")
             
@@ -449,29 +464,40 @@ class BottleTracker:
     def get_combined_frame(self):
         try:
             frames = []
+            # Sequential but optimized reading
             for camera in self.cameras:
                 frame = camera.read_frame()
                 if frame is not None:
+                    # Resize immediately to target size
+                    frame = cv2.resize(frame, (self.inference_width // 2, self.inference_height // 2))
                     frames.append(frame)
-                    # cv2.imshow(PREVIEW_WINDOW_NAME, frame)
-                
-            blabber(f"Got {len(frames)} frames for combining.")
             
-            frame_rows = self.split_array(frames, 2)
-            row_frames = []
-            for row in frame_rows:
-                while len(row) < 2:
-                    row.append(np.zeros_like(row[0]))
-                row_frame = np.hstack(row)
-                row_frames.append(row_frame)
-        
-            combined_frame = np.vstack(row_frames)
-            
-            combined_frame = cv2.resize(combined_frame, (self.inference_width, self.inference_height))
-            
-            return combined_frame
+            return self._combine_pre_resized_frames(frames)
         except queue.Empty:
             return None
+
+    def _combine_pre_resized_frames(self, frames):
+        if not frames:
+            return None
+        
+        # Create combined frame
+        combined_frame = np.zeros((self.inference_height, self.inference_width, 3), 
+                                dtype=np.uint8)
+        
+        target_height = self.inference_height // 2
+        target_width = self.inference_width // 2
+        
+        # Fill frames directly (frames are already resized)
+        for i, frame in enumerate(frames):
+            if i >= 4:
+                break
+            row = i // 2
+            col = i % 2
+            y = row * target_height
+            x = col * target_width
+            combined_frame[y:y+target_height, x:x+target_width] = frame
+        
+        return combined_frame
     
     def draw_rect_on_frame(self, frame, x_center, y_center, box_width, box_height, scale, bottle: Bottle = None, id_color=(255, 0, 0)):
         

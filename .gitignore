@@ -4,3 +4,4 @@ images
 models
 videos
 inference_saved_frames
+*.log

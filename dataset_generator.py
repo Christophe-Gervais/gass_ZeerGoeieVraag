@@ -5,7 +5,7 @@ import datetime
 import random
 
 
-model = YOLO("runs/detect/train20/weights/best.pt")
+model = YOLO("runs/detect/train26/weights/best.pt")
 
 VALIDATION_SPLIT = 0.2
 
@@ -61,7 +61,7 @@ def move_some_samples_to_validation():
         if os.path.exists(os.path.join(labels_dir, label_name)):
             os.rename(os.path.join(labels_dir, label_name), os.path.join(val_labels_dir, label_name))
 
-move_some_samples_to_validation()
+# move_some_samples_to_validation()
 
 def run():
     while True:

@@ -30,7 +30,7 @@ PREVIEW_IMAGE_SIZE = 400
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
 EASE_DISPLAY_SPEED = True
-DISPLAY_FRAMERATE = 5
+DISPLAY_FRAMERATE = 30
 MAX_QUEUE_SIZE = 300 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 1 # Amount of seconds to wait when queue is full
 RENDER_SKIPPED_FRAMES = True
@@ -89,6 +89,7 @@ class Camera:
     # frames: list[cv2.typing.MatLike]
     # result_queue: list
     frame_index: int
+    # last_results = None
     
     def get_allowed_frame_skip(self):
         return SKIP_FRAMES if SKIP_FRAMES > 0 else 1
@@ -99,6 +100,12 @@ class Camera:
                 ret, frame = self.cap.read()
                 if not ret:
                     return False
+                if RENDER_SKIPPED_FRAMES and self.last_results is not None:
+                    output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
+                    output_frame_height = PREVIEW_IMAGE_SIZE
+                    output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
+                    self.results_queue.put(self.last_results)
+                    self.frame_queue.put(output_frame)
             # blabber("Finished skipping frames.")
         return True
     
@@ -111,6 +118,7 @@ class Camera:
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.capture_fps = self.cap.get(cv2.CAP_PROP_FPS)
+        self.last_results = None
         
         
         
@@ -287,6 +295,7 @@ class Camera:
         # self.frame_count += num_frames
         for results in resultses:
             self.results_queue.put(results)
+            self.last_results = results
         for frame in output_frames:
             self.frame_queue.put(frame)
         return finished

@@ -30,10 +30,11 @@ PREVIEW_IMAGE_SIZE = 400
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
 EASE_DISPLAY_SPEED = True
-DISPLAY_FRAMERATE = 30
+DISPLAY_FRAMERATE = 10
 MAX_QUEUE_SIZE = 300 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 1 # Amount of seconds to wait when queue is full
 RENDER_SKIPPED_FRAMES = True
+SKIPPED_IMAGE_SIZE = 200
 
 # Logging options
 VERBOSE_YOLO = False
@@ -94,20 +95,26 @@ class Camera:
     def get_allowed_frame_skip(self):
         return SKIP_FRAMES if SKIP_FRAMES > 0 else 1
     
-    def skip_frames(self, frames_to_skip: int):
+    def skip_frames(self, frames_to_skip: int, collect_skipped: bool = False):
+        frames = []
         if frames_to_skip > 0:
             for _ in range(frames_to_skip):
                 ret, frame = self.cap.read()
                 if not ret:
-                    return False
-                if RENDER_SKIPPED_FRAMES and self.last_results is not None:
-                    output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
-                    output_frame_height = PREVIEW_IMAGE_SIZE
+                    return frames
+                if collect_skipped:
+                    output_frame_width = int(SKIPPED_IMAGE_SIZE * self.aspect_ratio)
+                    output_frame_height = SKIPPED_IMAGE_SIZE
                     output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
-                    self.results_queue.put(self.last_results)
-                    self.frame_queue.put(output_frame)
+                    frames.append(output_frame)
+                # if RENDER_SKIPPED_FRAMES and self.last_results is not None:
+                #     output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
+                #     output_frame_height = PREVIEW_IMAGE_SIZE
+                #     output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
+                #     self.results_queue.put(self.last_results)
+                #     self.frame_queue.put(output_frame)
             # blabber("Finished skipping frames.")
-        return True
+        return frames
     
     def __init__(self, name: str, video_path: str, start_delay: int = 0, start_index: int = 0):
         self.name = name
@@ -166,6 +173,8 @@ class Camera:
         
         output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
         output_frame_height = PREVIEW_IMAGE_SIZE
+        
+        frame = cv2.resize(frame, (output_frame_width, output_frame_height))
         # output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
         x_scale = output_frame_width / self.adjusted_width
         y_scale = output_frame_height / self.adjusted_height
@@ -262,6 +271,7 @@ class Camera:
         
         inference_frames = []
         output_frames = []
+        skipped_frameses = []
         finished = False
         for _ in range(num_frames):
             # frames_skipped = 0
@@ -270,7 +280,8 @@ class Camera:
             #     self.cap.read()
             #     frames_skipped += 1
             #     self.frame_count += 1
-            self.skip_frames(self.get_allowed_frame_skip() - 1)
+            skipped_frames = self.skip_frames(self.get_allowed_frame_skip() - 1, collect_skipped=RENDER_SKIPPED_FRAMES)
+            skipped_frameses.append(skipped_frames)
             ret, frame = self.cap.read()
             
             self.frame_count += 1
@@ -293,10 +304,16 @@ class Camera:
             output_frames.append(output_frame)
         resultses = self.model.track(inference_frames, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
         # self.frame_count += num_frames
-        for results in resultses:
+        for i, results in enumerate(resultses):
+            if RENDER_SKIPPED_FRAMES and self.last_results is not None:
+                for skipped_frame in skipped_frameses[i]:
+                    self.results_queue.put(self.last_results)
             self.results_queue.put(results)
             self.last_results = results
-        for frame in output_frames:
+        for i, frame in enumerate(output_frames):
+            if RENDER_SKIPPED_FRAMES:
+                for skipped_frame in skipped_frameses[i]:
+                    self.frame_queue.put(skipped_frame)
             self.frame_queue.put(frame)
         return finished
 

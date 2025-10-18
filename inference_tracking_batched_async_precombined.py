@@ -144,7 +144,7 @@ class Camera:
         self.processed_frame_count = 0
         
         blabber("Finished camera setup. Loading model...")
-        self.model = YOLO(MODEL_PATH)
+        # self.model = YOLO(MODEL_PATH)
         blabber("Finished loading model!")
         
         
@@ -330,6 +330,8 @@ class BottleTracker:
         self.aspect_ratio = cameras[0].aspect_ratio
         self.adjusted_width = int(IMAGE_SIZE * self.aspect_ratio)
         self.adjusted_height = IMAGE_SIZE
+        
+        self.model = YOLO(MODEL_PATH)
     
     def preprocess_frames(self, num_frames: int):
         
@@ -401,6 +403,8 @@ class BottleTracker:
             
             combined_frame = cv2.resize(combined_frame, (self.adjusted_width, self.adjusted_height))
             
+            return combined_frame
+            
             cv2.imshow("Inference Result", combined_frame)
             
             key = cv2.waitKey(0) & 0xFF
@@ -415,7 +419,25 @@ class BottleTracker:
     def run(self):
         # frames: dict[Camera, cv2.typing.MatLike] = []
         while True:
-            self.get_combined_frame()
+            combined_frame = self.get_combined_frame()
+            
+            cv2.imshow("Combined frame", combined_frame)
+            
+            results = self.model.predict(combined_frame, conf=0.25, save=False)
+            
+            for result in results:
+                annotated_frame = result.plot()
+                destination_height = 600
+                aspect_ratio = annotated_frame.shape[1] / annotated_frame.shape[0]
+                destination_width = int(destination_height * aspect_ratio)
+                annotated_frame = cv2.resize(annotated_frame, (destination_width, destination_height))
+                cv2.imshow("Inference Result", annotated_frame)
+            
+            key = cv2.waitKey(0) & 0xFF
+            if key == ord('q'):
+                return
+            elif key == ord('p'):
+                cv2.waitKey(-1)
         key = cv2.waitKey(1) & 0xFF
         if key == ord('q'):
             return

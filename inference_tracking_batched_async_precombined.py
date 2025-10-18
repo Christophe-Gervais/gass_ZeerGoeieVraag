@@ -16,7 +16,7 @@ MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 # Algorithm options
 IMAGE_SIZE = 160
 BATCH_SIZE = 70
-SKIP_FRAMES = 10 # Skip this many frames between each processing step
+SKIP_FRAMES = 8 # Skip this many frames between each processing step
 TEMPORAL_CUTOFF_THRESHOLD = 20  # Amount of frames a bottle needs to be seen to be considered tracked.
 BOTTLE_DISAGREEMENT_TOLERANCE = 15  # Amount of frames the cameras can disagree before correction is applied.
 SEQUENTIAL_CORRECTION_THRESHOLD = 3 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
@@ -27,14 +27,14 @@ EXTRA_CORRECTION = False # Allow correcting half the feed if one half disagrees 
 PREVIEW_IMAGE_SIZE = 640
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
-DISPLAY_FRAMERATE = 15
+DISPLAY_FRAMERATE = 12
 MAX_QUEUE_SIZE = 1000 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 0.1 # Amount of seconds to wait when queue is full
 RENDER_SKIPPED_FRAMES = False # Whether to render skipped frames in between processed frames
 SKIPPED_IMAGE_SIZE = 200
 EASE_DISPLAY_SPEED = True
 INCREASE_SPEED_AT = 150 # Speed up frame pacing when enough frames are queued
-
+SPEED_MULTIPLIER = 0.8
 
 # Logging options
 VERBOSE_YOLO = False # Show YOLO debug info
@@ -211,7 +211,7 @@ class Camera:
                 self.bottle_index_counter += 1
                 bottle.index = self.bottle_index_counter
                 self.bottles[track_id] = bottle
-                log("Bottle assigned index:", bottle.index, "Track ID:", track_id, "Camera:", self.name)
+                blabber("Bottle assigned index:", bottle.index, "Track ID:", track_id, "Camera:", self.name)
                 del self.temporary_bottles[track_id]
                 self.last_registered_bottle = bottle
                 self.last_registered_bottle_track_id = track_id
@@ -330,6 +330,7 @@ class BottleTracker:
             if frame is None:
                 break
             frames.append(frame)
+        log("Batch generated")
         self.batch_queue.put(frames)
     
     def preprocess_frames(self, num_frames: int):
@@ -376,14 +377,17 @@ class BottleTracker:
     
     def get_combined_frame(self):
         try:
+            log("Getting combined")
+            
             frames = []
             # Sequential but optimized reading
             for camera in self.cameras:
-                frame = camera.read_frame()
-                if frame is not None:
-                    # Resize immediately to target size
-                    frame = cv2.resize(frame, (self.inference_width // 2, self.inference_height // 2))
-                    frames.append(frame)
+                ret, frame = camera.cap.read()
+                if not ret:
+                    return None
+                # Resize immediately to target size
+                frame = cv2.resize(frame, (self.inference_width // 2, self.inference_height // 2))
+                frames.append(frame)
             
             return self._combine_pre_resized_frames(frames)
         except queue.Empty:
@@ -449,7 +453,7 @@ class BottleTracker:
         
         if EASE_DISPLAY_SPEED:
             if self.ready_frames_count() > INCREASE_SPEED_AT:
-                min_time_passed *= 0.5
+                min_time_passed *= SPEED_MULTIPLIER
         
         if time_passed < min_time_passed:
             sleep_time = min_time_passed - time_passed
@@ -461,15 +465,6 @@ class BottleTracker:
         self.last_frame_time = time()
     
     def get_frame(self):
-        # combined_frame = self.get_combined_frame()
-        
-        # if combined_frame is None:
-        #     return None, None
-        
-        # results = self.model.track(combined_frame, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
-        
-        # return combined_frame, results
-        
         try:
             frame = self.frame_queue.get()
             results = self.results_queue.get()
@@ -494,15 +489,8 @@ class BottleTracker:
                     camera.disagreement_count = 0
     
     def run(self):
-        
         self.start_preprocessing()
-        # frames: dict[Camera, cv2.typing.MatLike] = []
         while True:
-            # combined_frame = self.get_combined_frame()
-            
-            # # cv2.imshow("Combined frame", combined_frame)
-            
-            # results = self.model.track(combined_frame, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
             combined_frame, results = self.get_frame()
             
             output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
@@ -543,7 +531,7 @@ class BottleTracker:
                                 track_id = track_ids[box_index]
                                 
                                 if camera.register_bottle(relative_x, relative_y, track_id):
-                                    log("Bottle got accepted as being new.")
+                                    blabber("Bottle got accepted as being new.")
                                 # Render box on frame
                                 # if camera.name == "Top":
                                 # self.draw_rect_on_frame(output_frame, abs_x_center, abs_y_center, box_width, box_height, scale)
@@ -564,24 +552,14 @@ class BottleTracker:
                                     
                                 
                 if VERBOSE_DBUG:
-                    cv2.putText(output_frame, f'Queue size: {self.frame_queue.qsize()}', (10, output_frame_height - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-                
-                
-                # annotated_frame = result.plot()
-                # destination_height = 600
-                # aspect_ratio = annotated_frame.shape[1] / annotated_frame.shape[0]
-                # destination_width = int(destination_height * aspect_ratio)
-                # annotated_frame = cv2.resize(annotated_frame, (destination_width, destination_height))
+                    cv2.putText(output_frame, f'Inference queue: {self.frame_queue.qsize()} batch queue: {self.batch_queue.qsize()}', (10, output_frame_height - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+           
                 cv2.imshow("Inference Result", output_frame)
             
             self.solve_disagreements()
             
             self.wait_if_needed()
-            # key = cv2.waitKey(0) & 0xFF
-            # if key == ord('q'):
-            #     return
-            # elif key == ord('p'):
-            #     cv2.waitKey(-1)
+            
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
                 break

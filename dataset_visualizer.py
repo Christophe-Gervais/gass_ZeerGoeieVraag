@@ -45,12 +45,11 @@ def visualize_dataset_sample(image_path, label_path):
         cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
         cv2.putText(image, names[class_id], (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (36,255,12), 2)
 
-    #calculate width from height
     destination_height = 600
     aspect_ratio = image.shape[1] / image.shape[0]
     destination_width = int(destination_height * aspect_ratio)
     image = cv2.resize(image, (destination_width, destination_height))
-    # image = cv2.resize(image, (800, 600))
+    
     cv2.imshow("Dataset Sample", image)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
@@ -60,7 +59,7 @@ def visualize_dataset_sample(image_path, label_path):
 import os
 
 train_images = os.listdir(dataset_path + train_path)
-for i, img_name in enumerate(train_images[:3]):  # Visualize first 5 images
+for i, img_name in enumerate(train_images):  # Visualize first 5 images
     img_path = os.path.join(dataset_path, train_path, img_name)
     # Get matching label file
     

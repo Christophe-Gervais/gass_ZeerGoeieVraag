@@ -20,7 +20,7 @@ MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 IMAGE_SIZE = 160
 BATCH_SIZE = 70
 SKIP_FRAMES = 1 # Skip this many frames between each processing step
-TEMPORAL_CUTOFF_THRESHOLD = 40  # Amount of frames a bottle needs to be seen to be considered tracked.
+TEMPORAL_CUTOFF_THRESHOLD = 20  # Amount of frames a bottle needs to be seen to be considered tracked.
 BOTTLE_DISAGREEMENT_TOLERANCE = 15  # Amount of frames the cameras can disagree before correction is applied.
 SEQUENTIAL_CORRECTION_THRESHOLD = 3 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
 ENFORCE_INCREMENTAL_CORRECTION = False # Make sure the corrected index is unique.
@@ -30,7 +30,7 @@ EXTRA_CORRECTION = False # Allow correcting half the feed if one half disagrees 
 PREVIEW_IMAGE_SIZE = 640
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
-DISPLAY_FRAMERATE = 12
+DISPLAY_FRAMERATE = 30
 MAX_QUEUE_SIZE = 1000 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 0.1 # Amount of seconds to wait when queue is full
 RENDER_SKIPPED_FRAMES = False # Whether to render skipped frames in between processed frames
@@ -44,7 +44,7 @@ VERBOSE_YOLO = False # Show YOLO debug info
 VERBOSE_LOGS = True # Show general info
 VERBOSE_BLAB = False # Show detailed debug info
 VERBOSE_DBUG = True # Show debug info
-VERBOSE_PERF = True
+VERBOSE_PERF = False
 
 def log(*values: object, **kwargs):
     if not VERBOSE_LOGS: return
@@ -354,21 +354,15 @@ class BottleTracker:
         for _ in range(num_frames):
             meter = PerformanceMeter()
             self.skip_frames(self.get_allowed_frame_skip() - 1, collect_skipped=RENDER_SKIPPED_FRAMES)
-            # log(f"Skipping took {meter.elapsed()} seconds.")
-            # for camera in self.cameras:
-            #     frame_num = camera.cap.get(cv2.CAP_PROP_POS_FRAMES)
-            #     camera.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num + SKIP_FRAMES - 1)
             meter = PerformanceMeter()
             frame = self.get_combined_frame()
             meter.log_elapsed("Combining frames")
-            # log(f"Combining frames took {meter.elapsed()} seconds.")
             if frame is None:
                 more = False
                 break
             frames.append(frame)
         
         meter.log_elapsed("Batch generation")
-        # log(f"Batch generated. Took {meter.elapsed()} seconds.")
         self.batch_queue.put(frames)
         return more
     

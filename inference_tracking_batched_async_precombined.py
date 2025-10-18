@@ -433,7 +433,7 @@ class BottleTracker:
         except queue.Empty:
             return None
     
-    def draw_rect_on_frame(self, frame, x_center, y_center, box_width, box_height, scale):
+    def draw_rect_on_frame(self, frame, x_center, y_center, box_width, box_height, scale, bottle: Bottle = None, id_color=(255, 0, 0)):
         
         output_frame_width = frame.shape[1]
         output_frame_height = frame.shape[0]
@@ -457,13 +457,29 @@ class BottleTracker:
         thickness = 2
         color = (255, 0, 0)
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
+        
+        if bottle is not None:
+            cv2.putText(frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, id_color, 2)
+    
+    def wait_if_needed(self):
+        now = time()
+        time_passed = now - self.last_frame_time
+        min_time_passed = 1 / DISPLAY_FRAMERATE
+        if time_passed < min_time_passed:
+            sleep_time = min_time_passed - time_passed
+            if sleep_time > 0:
+                queued_frames = camera.get_ready_frames_count()
+                blabber(f"I'm being rate limited. {queued_frames} frames are already prepared. Sleeping for {sleep_time} seconds...")
+                sleep(sleep_time)
+        
+        self.last_frame_time = time()
     
     def run(self):
         # frames: dict[Camera, cv2.typing.MatLike] = []
         while True:
             combined_frame = self.get_combined_frame()
             
-            cv2.imshow("Combined frame", combined_frame)
+            # cv2.imshow("Combined frame", combined_frame)
             
             results = self.model.track(combined_frame, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
             
@@ -505,16 +521,21 @@ class BottleTracker:
                                     log("Bottle got accepted as being new.")
                                 # Render box on frame
                                 # if camera.name == "Top":
-                                self.draw_rect_on_frame(output_frame, abs_x_center, abs_y_center, box_width, box_height, scale)
-                                def draw_bottle_id(color):
-                                    cv2.putText(output_frame, 'Bottle ' + str(bottle.index), (int(abs_x_center + 10), int(abs_y_center + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+                                # self.draw_rect_on_frame(output_frame, abs_x_center, abs_y_center, box_width, box_height, scale)
                                 
+                                bottle = None
+                                bottle_id_color = (0, 0, 255)
                                 if track_id in camera.temporary_bottles:
                                     bottle = camera.temporary_bottles[track_id]
-                                    draw_bottle_id((0, 0, 255))
+                                    bottle_id_color = (0, 0, 255)
                                 if track_id in camera.bottles:
                                     bottle = camera.bottles[track_id]
-                                    draw_bottle_id((255, 255, 0) if bottle.was_corrected else (0, 255, 0))
+                                    bottle_id_color = (255, 255, 0) if bottle.was_corrected else (0, 255, 0)
+                                
+                                self.draw_rect_on_frame(output_frame, abs_x_center, abs_y_center, box_width, box_height, scale, bottle, bottle_id_color)
+                                # def draw_bottle_id(color):
+                                    
+                                
                 
                 
                 
@@ -525,12 +546,21 @@ class BottleTracker:
                 # annotated_frame = cv2.resize(annotated_frame, (destination_width, destination_height))
                 cv2.imshow("Inference Result", output_frame)
             
-            key = cv2.waitKey(0) & 0xFF
+            self.wait_if_needed()
+            # key = cv2.waitKey(0) & 0xFF
+            # if key == ord('q'):
+            #     return
+            # elif key == ord('p'):
+            #     cv2.waitKey(-1)
+            key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
-                return
+                break
             elif key == ord('p'):
                 cv2.waitKey(-1)
+                
+            self.window_was_open = True
     
+
         # for camera in self.cameras:
         #     camera.start_preprocessing()
         while True:

@@ -504,7 +504,17 @@ class BottleTracker:
                                 if camera.register_bottle(relative_x, relative_y, track_id):
                                     log("Bottle got accepted as being new.")
                                 # Render box on frame
+                                # if camera.name == "Top":
                                 self.draw_rect_on_frame(output_frame, abs_x_center, abs_y_center, box_width, box_height, scale)
+                                def draw_bottle_id(color):
+                                    cv2.putText(output_frame, 'Bottle ' + str(bottle.index), (int(abs_x_center + 10), int(abs_y_center + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, color, 2)
+                                
+                                if track_id in camera.temporary_bottles:
+                                    bottle = camera.temporary_bottles[track_id]
+                                    draw_bottle_id((0, 0, 255))
+                                if track_id in camera.bottles:
+                                    bottle = camera.bottles[track_id]
+                                    draw_bottle_id((255, 255, 0) if bottle.was_corrected else (0, 255, 0))
                 
                 
                 

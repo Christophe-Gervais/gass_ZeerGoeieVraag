@@ -326,6 +326,10 @@ class BottleTracker:
         
         self.results_queue = queue.Queue()
         self.frame_queue: queue.Queue[cv2.typing.MatLike] = queue.Queue()
+        
+        self.aspect_ratio = cameras[0].aspect_ratio
+        self.adjusted_width = int(IMAGE_SIZE * self.aspect_ratio)
+        self.adjusted_height = IMAGE_SIZE
     
     def preprocess_frames(self, num_frames: int):
         
@@ -381,7 +385,7 @@ class BottleTracker:
                 frame = camera.read_frame()
                 if frame is not None:
                     frames.append(frame)
-                    cv2.imshow(PREVIEW_WINDOW_NAME, frame)
+                    # cv2.imshow(PREVIEW_WINDOW_NAME, frame)
                 
             log(f"Got {len(frames)} frames for combining.")
             
@@ -394,6 +398,16 @@ class BottleTracker:
                 row_frames.append(row_frame)
         
             combined_frame = np.vstack(row_frames)
+            
+            combined_frame = cv2.resize(combined_frame, (self.adjusted_width, self.adjusted_height))
+            
+            cv2.imshow("Inference Result", combined_frame)
+            
+            key = cv2.waitKey(0) & 0xFF
+            if key == ord('q'):
+                return
+            elif key == ord('p'):
+                cv2.waitKey(-1)
             # cv2.imshow(PREVIEW_WINDOW_NAME, combined_frame)
         except queue.Empty:
             return None

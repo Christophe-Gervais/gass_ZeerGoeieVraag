@@ -17,7 +17,7 @@ MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 
 # Algorithm options
 IMAGE_SIZE = 80
-BATCH_SIZE = 100
+BATCH_SIZE = 200
 SKIP_FRAMES = 10 # Skip this many frames between each processing step
 TEMPORAL_CUTOFF_THRESHOLD = 6  # Amount of frames a bottle needs to be seen to be considered tracked.
 BOTTLE_DISAGREEMENT_TOLERANCE = 15  # Amount of frames the cameras can disagree before correction is applied.
@@ -30,14 +30,14 @@ PREVIEW_IMAGE_SIZE = 400
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
 EASE_DISPLAY_SPEED = True
-DISPLAY_FRAMERATE = 10
-MAX_QUEUE_SIZE = 500 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
+DISPLAY_FRAMERATE = 15
+MAX_QUEUE_SIZE = 600 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 1 # Amount of seconds to wait when queue is full
 
 # Logging options
 VERBOSE_YOLO = False
 VERBOSE_LOGS = True
-VERBOSE_BLAB = False
+VERBOSE_BLAB = True
 
 def log(*values: object, **kwargs):
     if not VERBOSE_LOGS: return
@@ -92,6 +92,15 @@ class Camera:
     def get_allowed_frame_skip(self):
         return SKIP_FRAMES if SKIP_FRAMES > 0 else 1
     
+    def skip_frames(self, frames_to_skip: int):
+        if frames_to_skip > 0:
+            for _ in range(frames_to_skip):
+                ret, frame = self.cap.read()
+                if not ret:
+                    return False
+            blabber("Finished skipping frames.")
+        return True
+    
     def __init__(self, name: str, video_path: str, start_delay: int = 0, start_index: int = 0):
         self.name = name
         self.video_path = video_path
@@ -118,13 +127,8 @@ class Camera:
         
         start_delay += EXTRA_CAMERA_DELAY
         frames_to_skip = int(start_delay * self.capture_fps)
-        if frames_to_skip > 0:
-            log(f"Camera {self.name}: Skipping first {frames_to_skip} frames for start delay of {start_delay} seconds.")
-            for _ in range(frames_to_skip):
-                ret, frame = self.cap.read()
-                if not ret:
-                    break
-            blabber("Finished skipping frames.")
+        log(f"Camera {self.name}: Skipping first {frames_to_skip} frames for start delay of {start_delay} seconds.")
+        self.skip_frames(frames_to_skip)
         
         self.frame_count = 0
         self.processed_frame_count = 0
@@ -247,20 +251,26 @@ class Camera:
             while self.frame_queue.qsize() > MAX_QUEUE_SIZE - BATCH_SIZE:
                 sleep(QUEUE_SIZE_CHECK_INTERVAL)
         
-        self.frame_count += num_frames
         inference_frames = []
         output_frames = []
         finished = False
         for _ in range(num_frames):
-            while not self.should_process_frame():
-                blabber("Skipping frame")
-                self.frame_count += 1
-                self.cap.read()
+            # while not self.should_process_frame():
+            #     blabber("Skipping frame")
+            #     self.frame_count += 1
+            #     self.cap.read()
             ret, frame = self.cap.read()
+            
+            self.frame_count += 1
+            if not self.should_process_frame():
+                blabber("Skipping frame after read")
+                continue
+            
             if not ret:
-                finished = True
+                log("No more frames to read from video.")
+                finished = False
                 break
-            log(self.adjusted_width, self.adjusted_height)
+            # log(self.adjusted_width, self.adjusted_height)
             inference_frame = cv2.resize(frame, (self.adjusted_width, self.adjusted_height))
             
             output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
@@ -270,6 +280,7 @@ class Camera:
             inference_frames.append(inference_frame)
             output_frames.append(output_frame)
         resultses = self.model.track(inference_frames, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
+        # self.frame_count += num_frames
         for results in resultses:
             self.results_queue.put(results)
         for frame in output_frames:
@@ -277,8 +288,9 @@ class Camera:
         return finished
 
     def should_process_frame(self):
-        blabber(f"I made {self.frame_count} frames.")
-        return self.frame_count % (SKIP_FRAMES + 1) == 0 if SKIP_FRAMES > 0 else True
+        should = (self.frame_count % (SKIP_FRAMES + 1) == 0) if SKIP_FRAMES > 0 else True
+        blabber(f"I made {self.frame_count} frames. I should process: {should}")
+        return should
     
     # def process_frame(self, frame):
     #     small_frame = cv2.resize(frame, (self.adjusted_width, self.adjusted_height))

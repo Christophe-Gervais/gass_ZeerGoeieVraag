@@ -5,7 +5,9 @@ import datetime
 import random
 
 
-model = YOLO("runs/detect/train16/weights/best.pt")
+model = YOLO("runs/detect/train20/weights/best.pt")
+
+VALIDATION_SPLIT = 0.2
 
 # Read frames from a video file and perform inference
 
@@ -50,7 +52,7 @@ def move_some_samples_to_validation():
     os.makedirs(val_images_dir, exist_ok=True)
     os.makedirs(val_labels_dir, exist_ok=True)
     all_images = os.listdir(images_dir)
-    num_val_samples = int(0.2 * len(all_images))
+    num_val_samples = int(VALIDATION_SPLIT * len(all_images))
     val_samples = random.sample(all_images, num_val_samples)
     for img_name in val_samples:
         base_name = os.path.splitext(img_name)[0]
@@ -58,6 +60,8 @@ def move_some_samples_to_validation():
         os.rename(os.path.join(images_dir, img_name), os.path.join(val_images_dir, img_name))
         if os.path.exists(os.path.join(labels_dir, label_name)):
             os.rename(os.path.join(labels_dir, label_name), os.path.join(val_labels_dir, label_name))
+
+move_some_samples_to_validation()
 
 def run():
     while True:

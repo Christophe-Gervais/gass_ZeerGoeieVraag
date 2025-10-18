@@ -8,7 +8,7 @@ import queue
 from time import time, sleep
 
 # Input options
-MODEL_PATH = "runs/detect/train15/weights/best.pt"
+MODEL_PATH = "runs/detect/train20/weights/best.pt"
 INPUT_VIDEO_FPS = 60
 EXTRA_CAMERA_DELAY = 1  # Delay in seconds
 MAX_FRAMES = 1000000 # The amount of frames to process before quitting

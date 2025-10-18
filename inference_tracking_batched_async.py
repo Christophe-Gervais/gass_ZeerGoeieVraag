@@ -26,12 +26,12 @@ ENFORCE_INCREMENTAL_CORRECTION = False # Make sure the corrected index is unique
 EXTRA_CORRECTION = True # Allow correcting half the feed if one half disagrees with itself.
 
 # Preview options
-PREVIEW_IMAGE_SIZE = 200
+PREVIEW_IMAGE_SIZE = 400
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
 EASE_DISPLAY_SPEED = True
 DISPLAY_FRAMERATE = 10
-MAX_QUEUE_SIZE = 300 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
+MAX_QUEUE_SIZE = 500 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 1 # Amount of seconds to wait when queue is full
 
 # Logging options
@@ -237,7 +237,7 @@ class Camera:
     def stop_preprocessing(self):
         self.running = False
         if self.producer_thread:
-            self.producer_thread.join(timeout=5)
+            self.producer_thread.join(timeout=10)
         print("Background producer stopped")    
     
     def preprocess_frames(self, num_frames: int):
@@ -257,16 +257,17 @@ class Camera:
                 self.frame_count += 1
                 self.cap.read()
             ret, frame = self.cap.read()
-            inference = cv2.resize(frame, (self.adjusted_width, self.adjusted_height))
+            if not ret:
+                finished = True
+                break
+            log(self.adjusted_width, self.adjusted_height)
+            inference_frame = cv2.resize(frame, (self.adjusted_width, self.adjusted_height))
             
             output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
             output_frame_height = PREVIEW_IMAGE_SIZE
             output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
             
-            if not ret:
-                finished = True
-                break
-            inference_frames.append(inference)
+            inference_frames.append(inference_frame)
             output_frames.append(output_frame)
         resultses = self.model.track(inference_frames, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
         for results in resultses:
@@ -290,6 +291,7 @@ class Camera:
     def release(self):
         self.cap.release()
         if SAVE_VIDEO: self.out.release()
+        self.stop_preprocessing()
     
     def finish_frame(self):
         self.processed_frame_count += 1
@@ -388,38 +390,35 @@ class BottleTracker:
             
             self.last_frame_time = time()
             
+            if self.window_was_open and self.is_window_closed(PREVIEW_WINDOW_NAME):
+                log("Window closed, exiting.")
+                break
+            
             # Display the frame
             try:
                 camera_count = len(self.cameras)
-                if len(frames) >= camera_count:
-                    frame_rows = self.split_array(frames, 2)
-                    log(frame_rows)
-                    row_frames = []
-                    for row in frame_rows:
-                        while len(row) < 2:
-                            row.append(np.zeros_like(row[0]))
-                        row_frame = np.hstack(row)
-                        row_frames.append(row_frame)
-                
-                    combined_frame = np.vstack(row_frames)
-                else:
-                    combined_frame = np.hstack(frames)
-                
-                if self.window_was_open and self.is_window_closed(PREVIEW_WINDOW_NAME):
-                    log("Window closed, exiting.")
-                    break
-                    
+                frame_rows = self.split_array(frames, 2)
+                row_frames = []
+                for row in frame_rows:
+                    while len(row) < 2:
+                        row.append(np.zeros_like(row[0]))
+                    row_frame = np.hstack(row)
+                    row_frames.append(row_frame)
+            
+                combined_frame = np.vstack(row_frames)
                 cv2.imshow(PREVIEW_WINDOW_NAME, combined_frame)
+            except:
+                log("Error combining frames for preview:")
+                # combined_frame = np.hstack(frames)
+            
                 
+            
 
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord('q'):
-                    break
-                elif key == ord('p'):
-                    cv2.waitKey(-1)
-            except Exception as e:
-                log("Error displaying frame:", e)
-                
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+            elif key == ord('p'):
+                cv2.waitKey(-1)
                 
             self.window_was_open = True
             

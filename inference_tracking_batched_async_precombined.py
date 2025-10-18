@@ -17,12 +17,12 @@ EXTRA_CAMERA_DELAY = 1  # Delay in seconds
 MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 
 # Algorithm options
-IMAGE_SIZE = 160
+IMAGE_SIZE = 320
 BATCH_SIZE = 70
-SKIP_FRAMES = 8 # Skip this many frames between each processing step
-TEMPORAL_CUTOFF_THRESHOLD = 20  # Amount of frames a bottle needs to be seen to be considered tracked.
+SKIP_FRAMES = 6 # Skip this many frames between each processing step
+TEMPORAL_CUTOFF_THRESHOLD = 40  # Amount of frames a bottle needs to be seen to be considered tracked.
 BOTTLE_DISAGREEMENT_TOLERANCE = 5  # Amount of frames the cameras can disagree before correction is applied.
-SEQUENTIAL_CORRECTION_THRESHOLD = 3 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
+SEQUENTIAL_CORRECTION_THRESHOLD = 2 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
 ENFORCE_INCREMENTAL_CORRECTION = False # Make sure the corrected index is unique.
 EXTRA_CORRECTION = False # Allow correcting half the feed if one half disagrees with itself.
 LOWER_DISPUTE_CORRECTION = True
@@ -32,7 +32,7 @@ PREVIEW_IMAGE_SIZE = 640
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
 DISPLAY_FRAMERATE = 30
-MAX_QUEUE_SIZE = 1000 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
+MAX_QUEUE_SIZE = 500 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 0.1 # Amount of seconds to wait when queue is full
 RENDER_SKIPPED_FRAMES = False # Whether to render skipped frames in between processed frames
 SKIPPED_IMAGE_SIZE = 200

@@ -5,7 +5,7 @@ import datetime
 import random
 
 
-model = YOLO("runs/detect/train15/weights/best.pt")
+model = YOLO("runs/detect/train16/weights/best.pt")
 
 # Read frames from a video file and perform inference
 

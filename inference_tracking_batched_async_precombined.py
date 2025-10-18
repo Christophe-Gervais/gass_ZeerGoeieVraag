@@ -28,7 +28,7 @@ PREVIEW_IMAGE_SIZE = 640
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
 EASE_DISPLAY_SPEED = True
-DISPLAY_FRAMERATE = 20
+DISPLAY_FRAMERATE = 15
 MAX_QUEUE_SIZE = 1000 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 0.1 # Amount of seconds to wait when queue is full
 RENDER_SKIPPED_FRAMES = False # Whether to render skipped frames in between processed frames
@@ -346,23 +346,36 @@ class BottleTracker:
     def get_ready_frames_count(self):
         return self.frame_queue.qsize()
     
-    def _image_processing_worker(self):
-        blabber("Starting batch preprocessing.")
+    def _inference_processing_worker(self):
+        blabber("Starting inference preprocessing.")
         while not self.preprocess_frames(BATCH_SIZE):
             blabber(f"Processed a batch of {BATCH_SIZE} images")
+            pass
+        
+    def _batch_processing_worker(self):
+        blabber("Starting batch preprocessing.")
+        while not self.pregenerate_batch_frames(BATCH_SIZE):
+            blabber(f"Prepared a batch of {BATCH_SIZE} images")
             pass
     
     def start_preprocessing(self):
         self.running = True
-        self.producer_thread = threading.Thread(target=self._image_processing_worker)
-        self.producer_thread.daemon = True
-        self.producer_thread.start()
+        self.inference_thread = threading.Thread(target=self._inference_processing_worker)
+        self.inference_thread.daemon = True
+        self.inference_thread.start()
+        
+        self.batch_thread = threading.Thread(target=self._batch_processing_worker)
+        self.batch_thread.daemon = True
+        self.batch_thread.start()
         print("Background producer started")
+    
     
     def stop_preprocessing(self):
         self.running = False
-        if self.producer_thread:
-            self.producer_thread.join(timeout=10)
+        if self.inference_thread:
+            self.inference_thread.join(timeout=10)
+        if self.batch_thread:
+            self.batch_thread.join(timeout=10)
         print("Background producer stopped")  
     
     def get_allowed_frame_skip(self):
@@ -388,13 +401,15 @@ class BottleTracker:
                             return frames
         return frames
     
-    def pregenerate_combined_frames(self, num_frames: int):
+    def pregenerate_batch_frames(self, num_frames: int):
+        frames = []
         for _ in range(num_frames):
+            self.skip_frames(self.get_allowed_frame_skip() - 1, collect_skipped=RENDER_SKIPPED_FRAMES)
             frame = self.get_combined_frame()
             if frame is None:
-                return False
-            self.inference_frame_queue.put(frame)
-        return True
+                break
+            frames.append(frame)
+        self.batch_queue.put(frames)
     
     def preprocess_frames(self, num_frames: int):
         
@@ -405,33 +420,33 @@ class BottleTracker:
                 
         log(f"Queue freed up.")
         
-        inference_frames = []
-        output_frames = []
+        inference_frames = self.batch_queue.get()
+        output_frames = inference_frames
         skipped_frameses = []
         finished = False
-        for _ in range(num_frames):
-            # log(f"Starting skipping frames.")
-            skipped_frames = self.skip_frames(self.get_allowed_frame_skip() - 1, collect_skipped=RENDER_SKIPPED_FRAMES)
-            skipped_frameses.append(skipped_frames)
-            # ret, frame = self.cap.read()
+        # for _ in range(num_frames):
+        #     # log(f"Starting skipping frames.")
+        #     skipped_frames = self.skip_frames(self.get_allowed_frame_skip() - 1, collect_skipped=RENDER_SKIPPED_FRAMES)
+        #     skipped_frameses.append(skipped_frames)
+        #     # ret, frame = self.cap.read()
             
-            # log(f"Starting getting combined frame.")
-            frame = self.get_combined_frame()
-            log(f"Got combined frame.")
+        #     # log(f"Starting getting combined frame.")
+        #     frame = self.get_combined_frame()
+        #     log(f"Got combined frame.")
             
-            if frame is None:
-                log("No more frames to read.")
-                finished = False
-                break
-            # log(self.adjusted_width, self.adjusted_height)
-            # inference_frame = cv2.resize(frame, (self.inference_width, self.inference_height))
+        #     if frame is None:
+        #         log("No more frames to read.")
+        #         finished = False
+        #         break
+        #     # log(self.adjusted_width, self.adjusted_height)
+        #     # inference_frame = cv2.resize(frame, (self.inference_width, self.inference_height))
             
-            output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
-            output_frame_height = PREVIEW_IMAGE_SIZE
-            output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
+        #     output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
+        #     output_frame_height = PREVIEW_IMAGE_SIZE
+        #     output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
             
-            inference_frames.append(frame)
-            output_frames.append(frame)
+        #     inference_frames.append(frame)
+        #     output_frames.append(frame)
         log(f"Running inference on batch of {len(inference_frames)} frames.")
         if len(inference_frames) == 0:
             return True

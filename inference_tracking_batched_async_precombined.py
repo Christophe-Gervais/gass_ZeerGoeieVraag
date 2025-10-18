@@ -420,6 +420,7 @@ class BottleTracker:
             target_width = self.inference_width // 2
             
             # self.combined_frame = np.zeros((self.inference_height, self.inference_width, 3), dtype=np.uint8)
+            combined_frame = np.zeros((self.inference_height, self.inference_width, 3), dtype=np.uint8)
             # frames = []
             # Sequential but optimized reading
             for i, camera in enumerate(self.cameras):
@@ -434,11 +435,11 @@ class BottleTracker:
                     col = i % 2
                     y = row * target_height
                     x = col * target_width
-                    self.combined_frame[y:y+target_height, x:x+target_width] = frame
+                    combined_frame[y:y+target_height, x:x+target_width] = frame
             
                 
                 # return self._combine_pre_resized_frames(frames)
-            return self.combined_frame
+            return combined_frame
         except queue.Empty:
             return None
     

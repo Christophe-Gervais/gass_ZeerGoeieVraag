@@ -88,6 +88,7 @@ class Camera:
     # frames: list[cv2.typing.MatLike]
     # result_queue: list
     frame_index: int
+    stack_rect: tuple[int, int, int, int]  # x, y, w, h
     # last_results = None
     
     def get_allowed_frame_skip(self):
@@ -152,6 +153,8 @@ class Camera:
         self.running = False
         self.producer_thread = None
         self.last_output_frame: cv2.typing.MatLike = None
+        
+        self.stack_rect = (0, 0, self.width, self.height)
         
     def get_frame(self):
         try:
@@ -332,6 +335,7 @@ class BottleTracker:
         self.adjusted_height = IMAGE_SIZE
         
         self.model = YOLO(MODEL_PATH)
+        # self.camera_stack_coordinates = []
     
     def preprocess_frames(self, num_frames: int):
         
@@ -380,6 +384,14 @@ class BottleTracker:
             self.frame_queue.put(frame)
         return finished
     
+    def calculate_camera_stack_rects(self):
+        for camera_index, camera in enumerate(self.cameras):
+            x = (camera_index % 2) * camera.width
+            y = (camera_index // 2) * camera.height
+            w = camera.width
+            h = camera.height
+            camera.stack_rect = (x, y, w, h)
+    
     def get_combined_frame(self):
         try:
             frames = []
@@ -423,27 +435,51 @@ class BottleTracker:
             
             cv2.imshow("Combined frame", combined_frame)
             
-            results = self.model.predict(combined_frame, conf=0.25, save=False)
+            results = self.model.track(combined_frame, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
             
             for result in results:
-                annotated_frame = result.plot()
-                destination_height = 600
-                aspect_ratio = annotated_frame.shape[1] / annotated_frame.shape[0]
-                destination_width = int(destination_height * aspect_ratio)
-                annotated_frame = cv2.resize(annotated_frame, (destination_width, destination_height))
-                cv2.imshow("Inference Result", annotated_frame)
+                # Get results inside the camera stack frame rect
+                
+                for camera in self.cameras:
+                    x, y, w, h = camera.stack_rect
+                    if result.boxes is not None:
+                        boxes = result.boxes.xywh.cpu()
+                        track_ids = None
+                        if result.boxes.id is not None:
+                            track_ids = result.boxes.id.cpu().numpy().astype(int)
+                        
+                        for box_index, box in enumerate(boxes):
+                            x_center, y_center, box_width, box_height = box
+                            
+                            # Check if the box is inside the camera's stack rect
+                            abs_x_center = x_center * self.adjusted_width
+                            abs_y_center = y_center * self.adjusted_height
+                            
+                            if x <= abs_x_center <= x + w and y <= abs_y_center <= y + h:
+                                relative_x = (abs_x_center - x) / w
+                                relative_y = (abs_y_center - y) / h
+                                
+                                track_id = track_ids[box_index]
+                                
+                                if camera.register_bottle(relative_x, relative_y, track_id):
+                                    log("Bottle got accepted as being new.")
+                    
+                
+                
+                
+                # annotated_frame = result.plot()
+                # destination_height = 600
+                # aspect_ratio = annotated_frame.shape[1] / annotated_frame.shape[0]
+                # destination_width = int(destination_height * aspect_ratio)
+                # annotated_frame = cv2.resize(annotated_frame, (destination_width, destination_height))
+                # cv2.imshow("Inference Result", annotated_frame)
             
             key = cv2.waitKey(0) & 0xFF
             if key == ord('q'):
                 return
             elif key == ord('p'):
                 cv2.waitKey(-1)
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):
-            return
-        elif key == ord('p'):
-            cv2.waitKey(-1)
-        return
+    
         # for camera in self.cameras:
         #     camera.start_preprocessing()
         while True:
@@ -575,7 +611,7 @@ def main():
         Camera('Front', 'videos/14_55/14_55_front_cropped.mp4', start_delay=0),
         
         Camera('Back Left', 'videos/14_55/14_55_back_left_cropped.mp4', start_delay=2),
-        Camera('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_delay=1, start_index=-1),
+        # Camera('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_delay=1, start_index=-1),
     ]
     
     bottle_tracker = BottleTracker(cameras)

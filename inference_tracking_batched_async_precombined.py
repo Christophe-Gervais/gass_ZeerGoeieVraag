@@ -15,7 +15,7 @@ MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 
 # Algorithm options
 IMAGE_SIZE = 160
-BATCH_SIZE = 100
+BATCH_SIZE = 50
 SKIP_FRAMES = 8 # Skip this many frames between each processing step
 TEMPORAL_CUTOFF_THRESHOLD = 15  # Amount of frames a bottle needs to be seen to be considered tracked.
 BOTTLE_DISAGREEMENT_TOLERANCE = 30  # Amount of frames the cameras can disagree before correction is applied.
@@ -28,10 +28,10 @@ PREVIEW_IMAGE_SIZE = 640
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
 EASE_DISPLAY_SPEED = True
-DISPLAY_FRAMERATE = 30
+DISPLAY_FRAMERATE = 10
 MAX_QUEUE_SIZE = 1000 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 1 # Amount of seconds to wait when queue is full
-RENDER_SKIPPED_FRAMES = False # Whether to render skipped frames in between processed frames
+RENDER_SKIPPED_FRAMES = True # Whether to render skipped frames in between processed frames
 SKIPPED_IMAGE_SIZE = 200
 
 # Logging options
@@ -232,7 +232,7 @@ class Camera:
                 
         
         if VERBOSE_DBUG:
-            cv2.putText(frame, f'Queue size: {self.frame_queue.qsize()}', (10, output_frame_height - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)        
+            cv2.putText(frame, f'Queue size: {self.get_ready_frames_count()}', (10, output_frame_height - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)        
         
         self.last_output_frame = frame
         
@@ -329,8 +329,9 @@ class BottleTracker:
         self.cameras = cameras
         self.track_ids = []
         
-        self.results_queue = queue.Queue()
         self.frame_queue: queue.Queue[cv2.typing.MatLike] = queue.Queue()
+        self.results_queue = queue.Queue()
+        self.last_results = None
         
         self.aspect_ratio = cameras[0].aspect_ratio
         self.inference_width = int(IMAGE_SIZE * self.aspect_ratio)
@@ -363,6 +364,23 @@ class BottleTracker:
             self.producer_thread.join(timeout=10)
         print("Background producer stopped")  
     
+    def get_allowed_frame_skip(self):
+        return SKIP_FRAMES if SKIP_FRAMES > 0 else 1
+    
+    def skip_frames(self, frames_to_skip: int, collect_skipped: bool = False):
+        frames = []
+        if frames_to_skip > 0:
+            for _ in range(frames_to_skip):
+                frame = self.get_combined_frame()
+                if frame is None:
+                    return frames
+                if collect_skipped:
+                    output_frame_width = int(SKIPPED_IMAGE_SIZE * self.aspect_ratio)
+                    output_frame_height = SKIPPED_IMAGE_SIZE
+                    output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
+                    frames.append(output_frame)
+        return frames
+    
     def preprocess_frames(self, num_frames: int):
         
         # Limit the queue size
@@ -375,8 +393,8 @@ class BottleTracker:
         skipped_frameses = []
         finished = False
         for _ in range(num_frames):
-            # skipped_frames = self.skip_frames(self.get_allowed_frame_skip() - 1, collect_skipped=RENDER_SKIPPED_FRAMES)
-            # skipped_frameses.append(skipped_frames)
+            skipped_frames = self.skip_frames(self.get_allowed_frame_skip() - 1, collect_skipped=RENDER_SKIPPED_FRAMES)
+            skipped_frameses.append(skipped_frames)
             # ret, frame = self.cap.read()
             
             frame = self.get_combined_frame()
@@ -432,7 +450,7 @@ class BottleTracker:
                     frames.append(frame)
                     # cv2.imshow(PREVIEW_WINDOW_NAME, frame)
                 
-            log(f"Got {len(frames)} frames for combining.")
+            blabber(f"Got {len(frames)} frames for combining.")
             
             frame_rows = self.split_array(frames, 2)
             row_frames = []
@@ -486,6 +504,8 @@ class BottleTracker:
         
         if bottle is not None:
             cv2.putText(frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, id_color, 2)
+        
+        return x1, y1, y2, y2
     
     def wait_if_needed(self):
         now = time()
@@ -565,13 +585,13 @@ class BottleTracker:
                         for box_index, box in enumerate(boxes):
                             x_center, y_center, box_width, box_height = box
                             
-                            log("Processing box at:", x_center, y_center, "for camera", camera.name)
+                            blabber("Processing box at:", x_center, y_center, "for camera", camera.name)
                             
                             # Check if the box is inside the camera's stack rect
                             abs_x_center = x_center
                             abs_y_center = y_center
                             
-                            log("Absolute center:", abs_x_center, abs_y_center, "Camera rect:", camera.stack_rect)
+                            blabber("Absolute center:", abs_x_center, abs_y_center, "Camera rect:", camera.stack_rect)
                             
                             if x <= abs_x_center <= x + w and y <= abs_y_center <= y + h:
                                 relative_x = (abs_x_center - x) / w
@@ -595,10 +615,13 @@ class BottleTracker:
                                     bottle_id_color = (255, 255, 0) if bottle.was_corrected else (0, 255, 0)
                                 
                                 self.draw_rect_on_frame(output_frame, abs_x_center, abs_y_center, box_width, box_height, scale, bottle, bottle_id_color)
+                                
+                                
                                 # def draw_bottle_id(color):
                                     
                                 
-                
+                if VERBOSE_DBUG:
+                    cv2.putText(output_frame, f'Queue size: {self.frame_queue.qsize()}', (10, output_frame_height - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                 
                 
                 # annotated_frame = result.plot()

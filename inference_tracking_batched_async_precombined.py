@@ -10,7 +10,7 @@ from time import time, sleep
 # Input options
 MODEL_PATH = "runs/detect/train26/weights/best.pt"
 INPUT_VIDEO_FPS = 60
-EXTRA_CAMERA_DELAY = 1  # Delay in seconds
+EXTRA_CAMERA_DELAY = 0  # Delay in seconds
 MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 
 # Algorithm options
@@ -28,9 +28,9 @@ PREVIEW_IMAGE_SIZE = 640
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
 EASE_DISPLAY_SPEED = True
-DISPLAY_FRAMERATE = 10
+DISPLAY_FRAMERATE = 20
 MAX_QUEUE_SIZE = 1000 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
-QUEUE_SIZE_CHECK_INTERVAL = 1 # Amount of seconds to wait when queue is full
+QUEUE_SIZE_CHECK_INTERVAL = 0.1 # Amount of seconds to wait when queue is full
 RENDER_SKIPPED_FRAMES = True # Whether to render skipped frames in between processed frames
 SKIPPED_IMAGE_SIZE = 200
 
@@ -114,7 +114,7 @@ class Camera:
             return None
         return frame
     
-    def __init__(self, name: str, video_path: str, start_delay: int = 0, start_index: int = 0):
+    def __init__(self, name: str, video_path: str, start_skip: int = 0, start_index: int = 0):
         self.name = name
         self.video_path = video_path
         input_path = Path(video_path)
@@ -137,9 +137,9 @@ class Camera:
         self.bottles = {}
         self.bottle_index_counter = start_index
         
-        start_delay += EXTRA_CAMERA_DELAY
-        frames_to_skip = int(start_delay * self.capture_fps)
-        log(f"Camera {self.name}: Skipping first {frames_to_skip} frames for start delay of {start_delay} seconds.")
+        start_skip += EXTRA_CAMERA_DELAY
+        frames_to_skip = int(start_skip * self.capture_fps)
+        log(f"Camera {self.name}: Skipping first {frames_to_skip} frames for start delay of {start_skip} seconds.")
         self.skip_frames(frames_to_skip)
         
         self.processed_frame_count = 0
@@ -387,31 +387,36 @@ class BottleTracker:
         if MAX_QUEUE_SIZE > 0:
             while self.frame_queue.qsize() > MAX_QUEUE_SIZE - BATCH_SIZE:
                 sleep(QUEUE_SIZE_CHECK_INTERVAL)
+                
+        log(f"Queue freed up.")
         
         inference_frames = []
         output_frames = []
         skipped_frameses = []
         finished = False
         for _ in range(num_frames):
+            log(f"Starting skipping frames.")
             skipped_frames = self.skip_frames(self.get_allowed_frame_skip() - 1, collect_skipped=RENDER_SKIPPED_FRAMES)
             skipped_frameses.append(skipped_frames)
             # ret, frame = self.cap.read()
             
+            log(f"Starting getting combined frame.")
             frame = self.get_combined_frame()
+            log(f"Got combined frame.")
             
             if frame is None:
                 log("No more frames to read.")
                 finished = False
                 break
             # log(self.adjusted_width, self.adjusted_height)
-            inference_frame = cv2.resize(frame, (self.inference_width, self.inference_height))
+            # inference_frame = cv2.resize(frame, (self.inference_width, self.inference_height))
             
             output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
             output_frame_height = PREVIEW_IMAGE_SIZE
             output_frame = cv2.resize(frame, (output_frame_width, output_frame_height))
             
-            inference_frames.append(inference_frame)
-            output_frames.append(output_frame)
+            inference_frames.append(frame)
+            output_frames.append(frame)
         log(f"Running inference on batch of {len(inference_frames)} frames.")
         if len(inference_frames) == 0:
             return True
@@ -465,15 +470,6 @@ class BottleTracker:
             combined_frame = cv2.resize(combined_frame, (self.inference_width, self.inference_height))
             
             return combined_frame
-            
-            cv2.imshow("Inference Result", combined_frame)
-            
-            key = cv2.waitKey(0) & 0xFF
-            if key == ord('q'):
-                return
-            elif key == ord('p'):
-                cv2.waitKey(-1)
-            # cv2.imshow(PREVIEW_WINDOW_NAME, combined_frame)
         except queue.Empty:
             return None
     
@@ -596,6 +592,9 @@ class BottleTracker:
                             if x <= abs_x_center <= x + w and y <= abs_y_center <= y + h:
                                 relative_x = (abs_x_center - x) / w
                                 relative_y = (abs_y_center - y) / h
+                                
+                                if track_ids is None:
+                                    continue
                                 
                                 track_id = track_ids[box_index]
                                 
@@ -775,11 +774,11 @@ class BottleTracker:
 
 def main():
     cameras: list[Camera] = [
-        Camera('Top', 'videos/14_55/14_55_top_cropped.mp4', start_delay=4),
-        Camera('Front', 'videos/14_55/14_55_front_cropped.mp4', start_delay=0),
+        Camera('Top', 'videos/14_55/14_55_top_cropped.mp4', start_skip=3),
+        Camera('Front', 'videos/14_55/14_55_front_cropped.mp4', start_skip=0),
         
-        Camera('Back Left', 'videos/14_55/14_55_back_left_cropped.mp4', start_delay=2),
-        Camera('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_delay=1, start_index=-1),
+        Camera('Back Left', 'videos/14_55/14_55_back_left_cropped.mp4', start_skip=2),
+        Camera('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_skip=1, start_index=-1),
     ]
     
     bottle_tracker = BottleTracker(cameras)

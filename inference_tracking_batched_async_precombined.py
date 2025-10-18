@@ -391,44 +391,61 @@ class BottleTracker:
     
     def get_combined_frame(self):
         try:
-            log("Getting combined")
+            # log("Getting combined")
             
-            mm
+            target_height = self.inference_height // 2
+            target_width = self.inference_width // 2
             
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future_to_camera = {executor.submit(camera.get_inference_frame): camera 
-                                for camera in self.cameras}
-                frames = []
-                for future in concurrent.futures.as_completed(future_to_camera):
-                    frame = future.result()
-                    if frame is not None:
-                        frames.append(frame)
+            # frames = []
+            # Sequential but optimized reading
+            for i, camera in enumerate(self.cameras):
+                frame = camera.get_inference_frame()
+                if frame is not None:
+                    # Resize immediately to target size
+                    frame = cv2.resize(frame, (self.inference_width // 2, self.inference_height // 2))
+                    # frames.append(frame)
+                    if i >= 4:
+                        break
+                    row = i // 2
+                    col = i % 2
+                    y = row * target_height
+                    x = col * target_width
+                    self.combined_frame[y:y+target_height, x:x+target_width] = frame
+            
+            # with concurrent.futures.ThreadPoolExecutor() as executor:
+            #     future_to_camera = {executor.submit(camera.get_inference_frame): camera 
+            #                     for camera in self.cameras}
+            #     frames = []
+            #     for future in concurrent.futures.as_completed(future_to_camera):
+            #         frame = future.result()
+            #         if frame is not None:
+            #             frames.append(frame)
                 
-                return self._combine_pre_resized_frames(frames)
+                # return self._combine_pre_resized_frames(frames)
+                return self.combined_frame
         except queue.Empty:
             return None
 
-    def _combine_pre_resized_frames(self, frames):
-        if not frames:
-            return None
+    # def _combine_pre_resized_frames(self, frames):
+    #     if not frames:
+    #         return None
         
-        # Create combined frame
+    #     # Create combined frame
         
         
-        target_height = self.inference_height // 2
-        target_width = self.inference_width // 2
         
-        # Fill frames directly (frames are already resized)
-        for i, frame in enumerate(frames):
-            if i >= 4:
-                break
-            row = i // 2
-            col = i % 2
-            y = row * target_height
-            x = col * target_width
-            self.combined_frame[y:y+target_height, x:x+target_width] = frame
         
-        return self.combined_frame
+    #     # Fill frames directly (frames are already resized)
+    #     for i, frame in enumerate(frames):
+    #         if i >= 4:
+    #             break
+    #         row = i // 2
+    #         col = i % 2
+    #         y = row * target_height
+    #         x = col * target_width
+    #         self.combined_frame[y:y+target_height, x:x+target_width] = frame
+        
+    #     return self.combined_frame
     
     def draw_rect_on_frame(self, frame, x_center, y_center, box_width, box_height, scale, bottle: Bottle = None, id_color=(255, 0, 0)):
         

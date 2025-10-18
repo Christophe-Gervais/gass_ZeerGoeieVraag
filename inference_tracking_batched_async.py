@@ -24,7 +24,7 @@ ENFORCE_INCREMENTAL_CORRECTION = False # Make sure the corrected index is unique
 EXTRA_CORRECTION = False # Allow correcting half the feed if one half disagrees with itself.
 
 # Preview options
-PREVIEW_IMAGE_SIZE = 160
+PREVIEW_IMAGE_SIZE = 640
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
 EASE_DISPLAY_SPEED = True

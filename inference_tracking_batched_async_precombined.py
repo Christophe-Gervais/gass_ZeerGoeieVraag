@@ -17,9 +17,9 @@ EXTRA_CAMERA_DELAY = 1  # Delay in seconds
 MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 
 # Algorithm options
-IMAGE_SIZE = 320
+IMAGE_SIZE = 160
 BATCH_SIZE = 70
-SKIP_FRAMES = 6 # Skip this many frames between each processing step
+SKIP_FRAMES = 8 # Skip this many frames between each processing step
 TEMPORAL_CUTOFF_THRESHOLD = 40  # Amount of frames a bottle needs to be seen to be considered tracked.
 BOTTLE_DISAGREEMENT_TOLERANCE = 5  # Amount of frames the cameras can disagree before correction is applied.
 SEQUENTIAL_CORRECTION_THRESHOLD = 2 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
@@ -28,7 +28,7 @@ EXTRA_CORRECTION = False # Allow correcting half the feed if one half disagrees 
 LOWER_DISPUTE_CORRECTION = True
 
 # Preview options
-PREVIEW_IMAGE_SIZE = 640
+PREVIEW_IMAGE_SIZE = 320
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
 DISPLAY_FRAMERATE = 30

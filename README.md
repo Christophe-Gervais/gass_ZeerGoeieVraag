@@ -56,8 +56,8 @@ python minio_download.py
 
 ## 🧠 Model Training
 
-| Model    | Data Used                     | Precision | Recall | Notes               |
-|----------|-------------------------------|-----------|--------|-------------------|
+| Model    | Data Used                     | Precision | Recall | Notes              |
+|----------|-------------------------------|-----------|--------|--------------------|
 | YOLO11n  | Initial dataset (poor labels) | 0.77      | 0.70   | Early baseline     |
 | YOLO11n  | MinIO dataset (correct labels)| 0.94      | 1.00   | Huge improvement   |
 | YOLO11m  | MinIO dataset (correct labels)| 0.96      | 1.00   | Final model        |

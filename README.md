@@ -1,5 +1,5 @@
 # 🧠 Gass Bottle Project 
-*AI Applications – WS2 | Group: ZeerGoeieVraag | Date: 12/10/2025*
+*AI Applications – WS2 | Group: ZeerGoeieVraag | Date: 19/10/2025*
 
 ---
 
@@ -13,7 +13,7 @@ Later in the project, we plan to connect multiple camera views and extract print
 ## 🧩 Project Structure
 ├── 🧠 `train.py` — Train the YOLO model on labeled data  
 ├── 🎥 `detect.py` — Detect and track bottles in video  
-├── 🧠botsort.yaml — Configuration file for BoT-SORT tracker    
+├── 🧠 `botsort.yaml` — Configuration file for BoT-SORT tracker    
 ├── 📦 `requirements.txt` — Project dependencies  
 ├── 📁 `videos/` — Folder for input videos *(create this manually)*  
 ├── 📁 `images/` — Folder for input images  

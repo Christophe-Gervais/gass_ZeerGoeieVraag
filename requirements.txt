@@ -1,1 +1,3 @@
 ultralytics
+dotenv
+cv2

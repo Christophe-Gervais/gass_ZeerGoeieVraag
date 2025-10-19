@@ -1,12 +1,13 @@
 from minio import Minio
-from minio.error import S3Error
-import tempfile
-import cv2
+import os
+from dotenv import load_dotenv
 
-MINIO_URL = "193.191.177.33:22555"
-MINIO_USER = "ai-app-students"
-MINIO_PASSWORD = "ai-app-students-welcome"
-MINIO_BUCKET_NAME = "eyes4rescue"
+load_dotenv()
+
+MINIO_URL = os.getenv('MINIO_URL')
+MINIO_USER = os.getenv('MINIO_USER')
+MINIO_PASSWORD = os.getenv('MINIO_PASSWORD')
+MINIO_BUCKET_NAME = os.getenv('MINIO_BUCKET_NAME')
 
 client = Minio(
     MINIO_URL,

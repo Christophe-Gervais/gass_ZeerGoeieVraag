@@ -1,4 +1,4 @@
-# 🧠 Gass Bottle Project 
+# Wat is dit? Zeer goeie vraag!
 *AI Applications – WS2 | Group: ZeerGoeieVraag | Date: 19/10/2025*
 
 ---
@@ -11,23 +11,33 @@ Later in the project, we plan to connect multiple camera views and extract print
 ---
 
 ## 🧩 Project Structure
-├── 🧠 `train.py` — Train the YOLO model on labeled data  
-├── 🎥 `detect.py` — Detect and track bottles in video  
-├── 🧠 `botsort.yaml` — Configuration file for BoT-SORT tracker    
-├── 📦 `requirements.txt` — Project dependencies  
-├── 📁 `videos/` — Folder for input videos *(create this manually)*  
-├── 📁 `images/` — Folder for input images  
-├── 📁 `labels/` — Folder for input labels for images   
-└── 📁 `runs/` — Auto-generated YOLO output  
+
+- 🧠 `train.py` — Train the YOLO model on labeled data  
+- 🎥 `detect.py` — Detect and track bottles in video  
+- 🧠 `botsort.yaml` — Configuration file for BoT-SORT tracker    
+- 📦 `requirements.txt` — Project dependencies
+- 📦 `minio_download.py` Run this script to download the required folders
+    - 📁 `videos/` — Folder for input videos  
+    - 📁 `images/` — Folder for input images  
+    - 📁 `labels/` — Folder for input labels for images   
+    - 📁 `runs/` — Auto-generated YOLO output  
 
 ---
 
 ## 📦Installation
+
+### Install the dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
 
-You will need to add a folder yourself called "videos", and put in here the videos you will use.
+### Download the data
+
+```sh
+python minio_download.py
+```
+
 
 ## 🧪 How to Train
 1. Go to train.py

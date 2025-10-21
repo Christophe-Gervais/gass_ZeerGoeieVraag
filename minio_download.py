@@ -16,7 +16,10 @@ client = Minio(
     secure=False
 )
 
+# print(client, MINIO_URL, MINIO_USER, )
+
 for bucket in client.list_buckets():
+    print(bucket.name)
     if bucket.name == MINIO_BUCKET_NAME:
         for item in client.list_objects(bucket.name, recursive=True):
             client.fget_object(bucket.name, item.object_name, item.object_name)

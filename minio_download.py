@@ -16,8 +16,6 @@ client = Minio(
     secure=False
 )
 
-# print(client, MINIO_URL, MINIO_USER, )
-
 for bucket in client.list_buckets():
     print(bucket.name)
     if bucket.name == MINIO_BUCKET_NAME:

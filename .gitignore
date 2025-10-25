@@ -7,3 +7,5 @@ inference_saved_frames
 *.log
 .env
 bottle_dataset/
+extra_ok_images/
+extra_nok_images/

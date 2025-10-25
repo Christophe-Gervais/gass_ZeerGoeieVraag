@@ -7,7 +7,7 @@ import random
 model = YOLO("runs/detect/gasbottle_yolo11m_final/weights/best.pt")
 
 VALIDATION_SPLIT = 0.2
-SKIP_FRAMES = 5  
+SKIP_FRAMES = 5 
 
 video_path = 'videos/14_55_top_cropped.mp4'
 cap = cv2.VideoCapture(video_path)

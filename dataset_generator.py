@@ -73,6 +73,7 @@ def run():
     while True:
         ret, frame = cap.read()
         if not ret:
+            print("End of video or cannot read frame")
             break
         
         results = model.predict(frame, conf=0.25, save=False)
@@ -95,7 +96,13 @@ def run():
             save_frame(frame, results, "NOK")
             print("Saved as NOK")
         elif key == ord('p'):
-            cv2.waitKey(-1)
+            cv2.waitKey(-1)  
+        elif key == ord('f'):
+            for _ in range(SKIP_FRAMES):
+                ret, _ = cap.read()
+                if not ret:
+                    print("Reached end while skipping frames")
+                    break
 
 run()
 move_some_samples_to_validation()

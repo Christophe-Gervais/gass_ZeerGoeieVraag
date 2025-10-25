@@ -5,7 +5,7 @@ def main():
 
     model.train(
         data="dataset_ok_nok.yaml",
-        epochs=10,
+        epochs=25,
         imgsz=640,
         batch=16,
         name="gasbottle_ok_nok",

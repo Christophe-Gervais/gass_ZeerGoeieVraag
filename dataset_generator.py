@@ -8,7 +8,7 @@ import numpy as np
 model = YOLO("runs/detect/gasbottle_yolo11m_final/weights/best.pt")
 
 VALIDATION_SPLIT = 0.2
-SKIP_FRAMES = 5
+SKIP_FRAMES = 50
 
 video_paths = [
     'videos/14_55_back_right_cropped.mp4',

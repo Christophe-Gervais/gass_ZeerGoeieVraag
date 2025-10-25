@@ -3,14 +3,21 @@ import cv2
 import os
 import datetime
 import random
+import numpy as np
 
 model = YOLO("runs/detect/gasbottle_yolo11m_final/weights/best.pt")
 
 VALIDATION_SPLIT = 0.2
 SKIP_FRAMES = 5 
 
-video_path = 'videos/14_55_top_cropped.mp4'
-cap = cv2.VideoCapture(video_path)
+video_paths = [
+    'videos/14_55_back_right_cropped.mp4',
+    'videos/14_55_front_cropped.mp4',
+    'videos/14_55_back_left_cropped.mp4',
+    'videos/14_55_top_cropped.mp4'
+]
+
+caps = [cv2.VideoCapture(p) for p in video_paths]
 
 dataset_dir = 'bottle_dataset'
 images_dir = os.path.join(dataset_dir, 'images')
@@ -18,34 +25,30 @@ labels_dir = os.path.join(dataset_dir, 'labels')
 os.makedirs(images_dir, exist_ok=True)
 os.makedirs(labels_dir, exist_ok=True)
 
-classes = {"OK": 0, "NOK": 1}  # your new classification labels
+classes = {"OK": 0, "NOK": 1}
 
-def save_frame(frame, results, label_type):
-    """Save frame + YOLO label file under OK/NOK"""
+def save_frame(frame, results, label_type, video_idx):
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-
     train_images_dir = os.path.join(images_dir, 'train', label_type)
     train_labels_dir = os.path.join(labels_dir, 'train', label_type)
     os.makedirs(train_images_dir, exist_ok=True)
     os.makedirs(train_labels_dir, exist_ok=True)
 
-    image_path = os.path.join(train_images_dir, f"{timestamp}.jpg")
-    label_path = os.path.join(train_labels_dir, f"{timestamp}.txt")
+    image_path = os.path.join(train_images_dir, f"video{video_idx}_{timestamp}.jpg")
+    label_path = os.path.join(train_labels_dir, f"video{video_idx}_{timestamp}.txt")
     cv2.imwrite(image_path, frame)
 
-    # Save YOLO labels (using original detection for bounding boxes)
     with open(label_path, 'w') as f:
         for result in results:
             boxes = result.boxes
             for box in boxes:
-                # assign the new class based on OK/NOK
                 cls_id = classes[label_type]
                 x1, y1, x2, y2 = box.xyxy[0]
-                img_height, img_width, _ = frame.shape
-                x_center = ((x1 + x2) / 2) / img_width
-                y_center = ((y1 + y2) / 2) / img_height
-                width = (x2 - x1) / img_width
-                height = (y2 - y1) / img_height
+                h, w, _ = frame.shape
+                x_center = ((x1 + x2) / 2) / w
+                y_center = ((y1 + y2) / 2) / h
+                width = (x2 - x1) / w
+                height = (y2 - y1) / h
                 f.write(f"{cls_id} {x_center} {y_center} {width} {height}\n")
 
 def move_some_samples_to_validation():
@@ -71,40 +74,51 @@ def move_some_samples_to_validation():
 
 def run():
     while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("End of video or cannot read frame")
-            break
-        
-        results = model.predict(frame, conf=0.25, save=False)
-        annotated_frame = frame.copy()
-        for result in results:
-            annotated_frame = result.plot()
-        destination_height = 600
-        aspect_ratio = annotated_frame.shape[1] / annotated_frame.shape[0]
-        destination_width = int(destination_height * aspect_ratio)
-        annotated_frame = cv2.resize(annotated_frame, (destination_width, destination_height))
-        cv2.imshow("Inference Result", annotated_frame)
+        frames = []
+        results_list = []
+
+        # Read frame from each video
+        for cap in caps:
+            ret, frame = cap.read()
+            if not ret:
+                frame = np.zeros((480, 640, 3), dtype=np.uint8)  # black frame if video ended
+            frames.append(frame)
+
+        # Predict and annotate each frame
+        annotated_frames = []
+        for i, frame in enumerate(frames):
+            results = model.predict(frame, conf=0.25, save=False)
+            results_list.append(results)
+            annotated_frame = frame.copy()
+            for result in results:
+                annotated_frame = result.plot()
+            annotated_frame = cv2.resize(annotated_frame, (320, 240))
+            annotated_frames.append(annotated_frame)
+
+        # Combine 4 frames into 2x2 grid
+        top_row = np.hstack(annotated_frames[:2])
+        bottom_row = np.hstack(annotated_frames[2:])
+        combined = np.vstack([top_row, bottom_row])
+
+        cv2.imshow("Multi-Video Inference", combined)
 
         key = cv2.waitKey(0) & 0xFF
         if key == ord('q'):
             break
-        elif key == ord('o'):
-            save_frame(frame, results, "OK")
-            print("Saved as OK")
-        elif key == ord('n'):
-            save_frame(frame, results, "NOK")
-            print("Saved as NOK")
+        elif key in [ord('o'), ord('n')]:
+            label_type = "OK" if key == ord('o') else "NOK"
+            for i, frame in enumerate(frames):
+                save_frame(frame, results_list[i], label_type, i)
+            print(f"Saved all videos as {label_type}")
         elif key == ord('p'):
-            cv2.waitKey(-1)  
+            cv2.waitKey(-1)
         elif key == ord('f'):
             for _ in range(SKIP_FRAMES):
-                ret, _ = cap.read()
-                if not ret:
-                    print("Reached end while skipping frames")
-                    break
+                for cap in caps:
+                    cap.read()  # skip frames
 
 run()
 move_some_samples_to_validation()
-cap.release()
+for cap in caps:
+    cap.release()
 cv2.destroyAllWindows()

@@ -8,11 +8,11 @@ import numpy as np
 model = YOLO("runs/detect/gasbottle_yolo11m_final/weights/best.pt")
 
 VALIDATION_SPLIT = 0.2
-SKIP_FRAMES = 5 
+SKIP_FRAMES = 5
 
 video_paths = [
     'videos/14_55_back_right_cropped.mp4',
-    'videos/14_55_front_cropped.mp4',
+    'videos/14_55_top_cropped.mp4',
     'videos/14_55_back_left_cropped.mp4',
     'videos/14_55_top_cropped.mp4'
 ]
@@ -73,6 +73,8 @@ def move_some_samples_to_validation():
                           os.path.join(val_labels_dir, label_name))
 
 def run():
+    DISPLAY_WIDTH = 480  # width per video
+
     while True:
         frames = []
         results_list = []
@@ -81,7 +83,7 @@ def run():
         for cap in caps:
             ret, frame = cap.read()
             if not ret:
-                frame = np.zeros((480, 640, 3), dtype=np.uint8)  # black frame if video ended
+                frame = np.zeros((int(DISPLAY_WIDTH * 3/4), DISPLAY_WIDTH, 3), dtype=np.uint8)  # placeholder black
             frames.append(frame)
 
         # Predict and annotate each frame
@@ -92,12 +94,16 @@ def run():
             annotated_frame = frame.copy()
             for result in results:
                 annotated_frame = result.plot()
-            annotated_frame = cv2.resize(annotated_frame, (320, 240))
+            
+            # Resize to 480px width while keeping aspect ratio
+            h, w = annotated_frame.shape[:2]
+            new_height = int(DISPLAY_WIDTH * h / w)
+            annotated_frame = cv2.resize(annotated_frame, (DISPLAY_WIDTH, new_height))
             annotated_frames.append(annotated_frame)
 
-        # Combine 4 frames into 2x2 grid
-        top_row = np.hstack(annotated_frames[:2])
-        bottom_row = np.hstack(annotated_frames[2:])
+        # Make sure all frames in a row have same height by padding if necessary
+        top_row = np.hstack([cv2.copyMakeBorder(f, 0, max(0, max(f.shape[0] for f in annotated_frames[:2])-f.shape[0]), 0, 0, cv2.BORDER_CONSTANT, value=[0,0,0]) for f in annotated_frames[:2]])
+        bottom_row = np.hstack([cv2.copyMakeBorder(f, 0, max(0, max(f.shape[0] for f in annotated_frames[2:])-f.shape[0]), 0, 0, cv2.BORDER_CONSTANT, value=[0,0,0]) for f in annotated_frames[2:]])
         combined = np.vstack([top_row, bottom_row])
 
         cv2.imshow("Multi-Video Inference", combined)
@@ -115,7 +121,7 @@ def run():
         elif key == ord('f'):
             for _ in range(SKIP_FRAMES):
                 for cap in caps:
-                    cap.read()  # skip frames
+                    cap.read()
 
 run()
 move_some_samples_to_validation()

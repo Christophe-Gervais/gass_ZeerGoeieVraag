@@ -14,7 +14,7 @@ video_paths = [
     'videos/14_55_back_right_cropped.mp4',
     'videos/14_55_top_cropped.mp4',
     'videos/14_55_back_left_cropped.mp4',
-    'videos/14_55_top_cropped.mp4'
+    'videos/14_55_front_cropped.mp4'
 ]
 
 caps = [cv2.VideoCapture(p) for p in video_paths]

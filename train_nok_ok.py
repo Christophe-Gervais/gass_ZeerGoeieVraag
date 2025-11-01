@@ -5,10 +5,10 @@ def main():
 
     model.train(
         data="dataset_ok_nok.yaml",
-        epochs=25,
+        epochs=40,
         imgsz=640,
         batch=16,
-        name="gasbottle_ok_nok_final",
+        name="gasbottle_ok_nok_final_try2",
         workers=20,
         device="cuda:0",
         resume=False,

@@ -1,5 +1,5 @@
-train: bottle_dataset/images/train
-val:   bottle_dataset/images/val
+train: merged_bottle_dataset/images/train
+val:   merged_bottle_dataset/images/val
 
 nc: 2
 names: ['OK', 'NOK']

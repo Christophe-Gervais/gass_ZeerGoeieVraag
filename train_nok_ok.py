@@ -8,7 +8,7 @@ def main():
         epochs=25,
         imgsz=640,
         batch=16,
-        name="gasbottle_ok_nok_merged",
+        name="gasbottle_ok_nok_final",
         workers=20,
         device="cuda:0",
         resume=False,

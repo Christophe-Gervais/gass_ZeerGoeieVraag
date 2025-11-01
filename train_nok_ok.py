@@ -1,16 +1,17 @@
 from ultralytics import YOLO
 
 def main():
-    model = YOLO("yolo11m.pt")
+    model = YOLO("runs/best.pt")
 
     model.train(
         data="dataset_ok_nok.yaml",
         epochs=25,
         imgsz=640,
         batch=16,
-        name="gasbottle_ok_nok",
+        name="gasbottle_ok_nok_merged",
         workers=20,
         device="cuda:0",
+        resume=False,
     )
 
     metrics = model.val(data="dataset_ok_nok.yaml")

@@ -5,10 +5,10 @@ import datetime
 import random
 import numpy as np
 
-model = YOLO("runs/detect/gasbottle_yolo11m_final/weights/best.pt")
+model = YOLO("runs/best.pt")
 
 VALIDATION_SPLIT = 0.2
-SKIP_FRAMES = 50
+SKIP_FRAMES = 100
 
 video_paths = [
     'videos/14_55_back_right_cropped.mp4',
@@ -19,7 +19,7 @@ video_paths = [
 
 caps = [cv2.VideoCapture(p) for p in video_paths]
 
-dataset_dir = 'bottle_dataset'
+dataset_dir = 'test'
 images_dir = os.path.join(dataset_dir, 'images')
 labels_dir = os.path.join(dataset_dir, 'labels')
 os.makedirs(images_dir, exist_ok=True)
@@ -120,6 +120,11 @@ def run():
             cv2.waitKey(-1)
         elif key == ord('f'):
             for _ in range(SKIP_FRAMES):
+                for cap in caps:
+                    cap.read()
+        elif key == 32:  # Spacebar
+            skip_count = 15
+            for _ in range(skip_count):
                 for cap in caps:
                     cap.read()
 

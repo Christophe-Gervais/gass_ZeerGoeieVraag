@@ -10,3 +10,4 @@ bottle_dataset/
 extra_ok_images/
 extra_nok_images/
 merged_bottle_dataset/
+test/

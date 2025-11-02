@@ -11,13 +11,13 @@ from concurrent.futures import ThreadPoolExecutor
 
 
 # Input options
-MODEL_PATH = "runs/detect/gasbottle_ok_nok_final/weights/best.pt"
+MODEL_PATH = "runs/detect/gasbottle_ok_nok_final_try23/weights/best.pt"
 INPUT_VIDEO_FPS = 60
 EXTRA_CAMERA_DELAY = 1  # Delay in seconds
 MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 
 # Algorithm options
-IMAGE_SIZE = 160
+IMAGE_SIZE = 320
 BATCH_SIZE = 70
 SKIP_FRAMES = 8 # Skip this many frames between each processing step
 TEMPORAL_CUTOFF_THRESHOLD = 40  # Amount of frames a bottle needs to be seen to be considered tracked.
@@ -28,10 +28,10 @@ EXTRA_CORRECTION = False # Allow correcting half the feed if one half disagrees 
 LOWER_DISPUTE_CORRECTION = True
 
 # Preview options
-PREVIEW_IMAGE_SIZE = 320
+PREVIEW_IMAGE_SIZE = 480
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
-DISPLAY_FRAMERATE = 30
+DISPLAY_FRAMERATE = 5
 MAX_QUEUE_SIZE = 100 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 0.1 # Amount of seconds to wait when queue is full
 RENDER_SKIPPED_FRAMES = False # Whether to render skipped frames in between processed frames

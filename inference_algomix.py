@@ -27,7 +27,9 @@ ENFORCE_INCREMENTAL_CORRECTION = False # Make sure the corrected index is unique
 EXTRA_CORRECTION = False # Allow correcting half the feed if one half disagrees with itself.
 LOWER_DISPUTE_CORRECTION = True
 PRECOMBINE = True
-BOTTLE_SIZE_COUNTING = True
+
+COUNT_BY_BOTTLE_SIZE = True
+SIZE_STREAK_THRESHOLD = 5 # How many times in a row the bottle has to increase in size for it to be considered a new bottle.
 
 # Preview options
 PREVIEW_IMAGE_SIZE = 320
@@ -179,6 +181,8 @@ class Camera:
         self.inference_width = int(IMAGE_SIZE * self.aspect_ratio)
         self.inference_height = IMAGE_SIZE
         
+        self.bottle_size_history: list[float] = list()
+        
         # As
     def get_ready_frames_count(self):
         return self.frame_queue.qsize()
@@ -235,9 +239,23 @@ class Camera:
             self.track_ids_seen[track_id] += 1
             self.temporary_bottles[track_id].x = x
             self.temporary_bottles[track_id].y = y
-            if self.track_ids_seen[track_id] >= TEMPORAL_CUTOFF_THRESHOLD / self.get_allowed_frame_skip():
-                self.promote_bottle(track_id)
-                return True
+            if COUNT_BY_BOTTLE_SIZE:
+                self.bottle_size_history.append(width)
+                size_streak = 0
+                last_size = 0
+                for size in self.bottle_size_history:
+                    if size <= last_size:
+                        break
+                    last_size = size
+                    size_streak += 1
+                if size_streak > SIZE_STREAK_THRESHOLD:
+                    self.promote_bottle(track_id)
+                    self.bottle_size_history.clear()
+            else:
+                if self.track_ids_seen[track_id] >= TEMPORAL_CUTOFF_THRESHOLD / self.get_allowed_frame_skip():
+                    self.promote_bottle(track_id)
+                    return True
+
             return False
         bottle = Bottle(x, y, track_id)
         self.temporary_bottles[track_id] = bottle

@@ -29,8 +29,8 @@ LOWER_DISPUTE_CORRECTION = True
 PRECOMBINE = True
 
 COUNT_BY_BOTTLE_SIZE = True
-SIZE_STREAK_THRESHOLD = 5 # How many times in a row the bottle has to increase in size for it to be considered a new bottle.
-SIZE_INCREASE_THRESHOLD = 5
+SIZE_STREAK_THRESHOLD = 3 # How many times in a row the bottle has to increase in size for it to be considered a new bottle.
+SIZE_INCREASE_THRESHOLD = 0
 
 # Preview options
 PREVIEW_IMAGE_SIZE = 320
@@ -60,6 +60,19 @@ def blabber(*values: object, **kwargs):
     if not VERBOSE_BLAB: return
     print(*values, *kwargs)
 
+class PerformanceMeter:
+    def __init__(self):
+        self.start_time = perf_counter()
+    
+    def elapsed(self):
+        return perf_counter() - self.start_time
+    
+    def log_elapsed(self, message: str):
+        if VERBOSE_PERF:
+            print(message, f"took {self.elapsed()} seconds.")
+        
+
+
 class Bottle:
     index: int = -1
     x: float
@@ -73,6 +86,12 @@ class Bottle:
         self.x = x
         self.y = y
         self.yolo_id = yolo_id
+        self.bottle_size_history: list[float] = list()
+
+class Batch:
+    def __init__(self, frames, is_precombined = True):
+        self.frames: list[cv2.typing.MatLike] = frames
+        self.is_precombined = is_precombined
 
 class Camera:
     name: str
@@ -90,7 +109,7 @@ class Camera:
     temporary_bottles: dict[int, Bottle] = {}
     bottles: dict[int, Bottle]
     track_ids_seen: dict[int, int] = {}  # Count of frames each track ID has been seen in
-    bottle_index_counter: int = 0
+    last_bottle_index: int = 0
     # start_delay: float = 0 # seconds
     capture_fps: float
     frames_since_last_registration: int = 0
@@ -153,7 +172,7 @@ class Camera:
             self.out = cv2.VideoWriter(self.output_path, fourcc, self.capture_fps / SKIP_FRAMES, (self.adjusted_width, self.adjusted_height))
         
         self.bottles = {}
-        self.bottle_index_counter = start_index
+        self.last_bottle_index = start_index
         
         start_skip += EXTRA_CAMERA_DELAY
         frames_to_skip = int(start_skip * self.capture_fps)
@@ -179,7 +198,8 @@ class Camera:
         self.inference_width = int(IMAGE_SIZE * self.aspect_ratio)
         self.inference_height = IMAGE_SIZE
         
-        self.bottle_size_history: list[float] = list()
+        # self.last_bottle_index = 0
+        # self.bottle_size_history: list[float] = list()
         
         # As
     def get_ready_frames_count(self):
@@ -219,8 +239,8 @@ class Camera:
         
     def promote_bottle(self, track_id):
         bottle = self.temporary_bottles[track_id]
-        self.bottle_index_counter += 1
-        bottle.index = self.bottle_index_counter
+        self.last_bottle_index += 1
+        bottle.index = self.last_bottle_index
         self.bottles[track_id] = bottle
         blabber("Bottle assigned index:", bottle.index, "Track ID:", track_id, "Camera:", self.name)
         del self.temporary_bottles[track_id]
@@ -237,19 +257,22 @@ class Camera:
             self.track_ids_seen[track_id] += 1
             self.temporary_bottles[track_id].x = x
             self.temporary_bottles[track_id].y = y
+            
+            bottle = self.temporary_bottles[track_id]
             if COUNT_BY_BOTTLE_SIZE:
-                self.bottle_size_history.append(width)
+                bottle.bottle_size_history.append(width)
                 size_streak = 0
                 last_size = 0
-                for size in self.bottle_size_history:
+                for size in bottle.bottle_size_history:
                     if size <= last_size + SIZE_INCREASE_THRESHOLD:
+                        log("This one didn't grow enough.")
                         break
                     last_size = size
                     size_streak += 1
-                print("Size streak:", size_streak)
+                print("Size streak:", size_streak, " YOLO ID: ", bottle.yolo_id)
                 if size_streak > SIZE_STREAK_THRESHOLD / SKIP_FRAMES:
                     self.promote_bottle(track_id)
-                    self.bottle_size_history.clear()
+                    bottle.bottle_size_history.clear()
                     return True
             else:
                 if self.track_ids_seen[track_id] >= TEMPORAL_CUTOFF_THRESHOLD / SKIP_FRAMES:
@@ -266,26 +289,9 @@ class Camera:
     def register_correction(self, corrected_index):
         self.sequential_correction_count += 1
         if self.sequential_correction_count > TEMPORAL_CUTOFF_THRESHOLD / SKIP_FRAMES:
-            self.bottle_index_counter = corrected_index
+            self.last_bottle_index = corrected_index
             log(f"I, Camera {self.name}, was wrong {self.sequential_correction_count} in a row. I really thought I was right but I guess I wasn't. As punishment I will correct myself, remember that the correct index from now on is {corrected_index} and I will try my best to never do this again. I'm so sorry.")
 
-
-class PerformanceMeter:
-    def __init__(self):
-        self.start_time = perf_counter()
-    
-    def elapsed(self):
-        return perf_counter() - self.start_time
-    
-    def log_elapsed(self, message: str):
-        if VERBOSE_PERF:
-            print(message, f"took {self.elapsed()} seconds.")
-        
-
-class Batch:
-    def __init__(self, frames, is_precombined = True):
-        self.frames: list[cv2.typing.MatLike] = frames
-        self.is_precombined = is_precombined
 
 class BottleTracker:
     cameras: list[Camera]
@@ -561,6 +567,7 @@ class BottleTracker:
         
         if bottle is not None:
             cv2.putText(frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, id_color, 2)
+            cv2.putText(frame, 'YOLO ID: ' + str(bottle.yolo_id), (int(x1 + 10), int(y1 + 50)), cv2.FONT_HERSHEY_SIMPLEX, 1, id_color, 2)
         
         return x1, y1, y2, y2
     

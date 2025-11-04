@@ -589,17 +589,12 @@ class BottleTracker:
                         for box_index, box in enumerate(boxes):
                             x_center, y_center, box_width, box_height = box
                             
-                            blabber("Processing box at:", x_center, y_center, "for camera", camera.name)
+                            blabber("Absolute center:", x_center, y_center, "for camera", camera.name, "Camera rect:", camera.stack_rect)
                             
                             # Check if the box is inside the camera's stack rect
-                            abs_x_center = x_center
-                            abs_y_center = y_center
-                            
-                            blabber("Absolute center:", abs_x_center, abs_y_center, "Camera rect:", camera.stack_rect)
-                            
-                            if x <= abs_x_center <= x + w and y <= abs_y_center <= y + h:
-                                relative_x = (abs_x_center - x) / w
-                                relative_y = (abs_y_center - y) / h
+                            if x <= x_center <= x + w and y <= y_center <= y + h:
+                                relative_x = (x_center - x) / w
+                                relative_y = (y_center - y) / h
                                 
                                 if track_ids is None:
                                     continue
@@ -621,7 +616,7 @@ class BottleTracker:
                                     bottle = camera.bottles[track_id]
                                     bottle_id_color = (255, 255, 0) if bottle.was_corrected else (0, 255, 0)
                                 
-                                self.draw_rect_on_frame(output_frame, abs_x_center, abs_y_center, box_width, box_height, scale, bottle, bottle_id_color)
+                                self.draw_rect_on_frame(output_frame, x_center, y_center, box_width, box_height, scale, bottle, bottle_id_color)
                                 
                                 
                                 # def draw_bottle_id(color):

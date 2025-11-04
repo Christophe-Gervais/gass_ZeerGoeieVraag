@@ -27,6 +27,7 @@ ENFORCE_INCREMENTAL_CORRECTION = False # Make sure the corrected index is unique
 EXTRA_CORRECTION = False # Allow correcting half the feed if one half disagrees with itself.
 LOWER_DISPUTE_CORRECTION = True
 PRECOMBINE = True
+BOTTLE_SIZE_COUNTING = True
 
 # Preview options
 PREVIEW_IMAGE_SIZE = 320
@@ -214,25 +215,28 @@ class Camera:
     def finish_frame(self):
         self.processed_frame_count += 1
         
-    def register_bottle(self, x, y, track_id):
+    def promote_bottle(self, track_id):
+        bottle = self.temporary_bottles[track_id]
+        self.bottle_index_counter += 1
+        bottle.index = self.bottle_index_counter
+        self.bottles[track_id] = bottle
+        blabber("Bottle assigned index:", bottle.index, "Track ID:", track_id, "Camera:", self.name)
+        del self.temporary_bottles[track_id]
+        self.last_registered_bottle = bottle
+        self.last_registered_bottle_track_id = track_id
+        
+    def register_bottle(self, x, y, width, height, track_id):
         if track_id in self.bottles:
             self.bottles[track_id].x = x
             self.bottles[track_id].y = y
-            return False
+            return False 
         
         if track_id in self.temporary_bottles:
             self.track_ids_seen[track_id] += 1
             self.temporary_bottles[track_id].x = x
             self.temporary_bottles[track_id].y = y
             if self.track_ids_seen[track_id] >= TEMPORAL_CUTOFF_THRESHOLD / self.get_allowed_frame_skip():
-                bottle = self.temporary_bottles[track_id]
-                self.bottle_index_counter += 1
-                bottle.index = self.bottle_index_counter
-                self.bottles[track_id] = bottle
-                blabber("Bottle assigned index:", bottle.index, "Track ID:", track_id, "Camera:", self.name)
-                del self.temporary_bottles[track_id]
-                self.last_registered_bottle = bottle
-                self.last_registered_bottle_track_id = track_id
+                self.promote_bottle(track_id)
                 return True
             return False
         bottle = Bottle(x, y, track_id)
@@ -601,7 +605,7 @@ class BottleTracker:
                                 
                                 track_id = track_ids[box_index]
                                 
-                                if camera.register_bottle(relative_x, relative_y, track_id):
+                                if camera.register_bottle(relative_x, relative_y, box_width, box_height, track_id):
                                     blabber("Bottle got accepted as being new.")
                                 # Render box on frame
                                 # if camera.name == "Top":

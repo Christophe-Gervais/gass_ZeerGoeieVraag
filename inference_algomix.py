@@ -19,7 +19,7 @@ MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 # Algorithm options
 IMAGE_SIZE = 160
 BATCH_SIZE = 70
-SKIP_FRAMES = 8 # Skip this many frames between each processing step
+SKIP_FRAMES = 1 # Skip this many frames between each processing step
 TEMPORAL_CUTOFF_THRESHOLD = 40  # Amount of frames a bottle needs to be seen to be considered tracked.
 BOTTLE_DISAGREEMENT_TOLERANCE = 5  # Amount of frames the cameras can disagree before correction is applied.
 SEQUENTIAL_CORRECTION_THRESHOLD = 2 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
@@ -30,6 +30,7 @@ PRECOMBINE = True
 
 COUNT_BY_BOTTLE_SIZE = True
 SIZE_STREAK_THRESHOLD = 5 # How many times in a row the bottle has to increase in size for it to be considered a new bottle.
+SIZE_INCREASE_THRESHOLD = 5
 
 # Preview options
 PREVIEW_IMAGE_SIZE = 320
@@ -104,9 +105,6 @@ class Camera:
     stack_rect: tuple[int, int, int, int]  # x, y, w, h
     # last_results = None
     
-    def get_allowed_frame_skip(self):
-        return SKIP_FRAMES if SKIP_FRAMES > 0 else 1
-    
     def skip_frames(self, frames_to_skip: int, collect_skipped: bool = False):
         frames = []
         if frames_to_skip > 0:
@@ -152,7 +150,7 @@ class Camera:
         if SAVE_VIDEO:
             self.output_path = f'runs/detect/track/{input_path.stem}_tracked.mp4'
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            self.out = cv2.VideoWriter(self.output_path, fourcc, self.capture_fps / self.get_allowed_frame_skip(), (self.adjusted_width, self.adjusted_height))
+            self.out = cv2.VideoWriter(self.output_path, fourcc, self.capture_fps / SKIP_FRAMES, (self.adjusted_width, self.adjusted_height))
         
         self.bottles = {}
         self.bottle_index_counter = start_index
@@ -244,15 +242,17 @@ class Camera:
                 size_streak = 0
                 last_size = 0
                 for size in self.bottle_size_history:
-                    if size <= last_size:
+                    if size <= last_size + SIZE_INCREASE_THRESHOLD:
                         break
                     last_size = size
                     size_streak += 1
-                if size_streak > SIZE_STREAK_THRESHOLD:
+                print("Size streak:", size_streak)
+                if size_streak > SIZE_STREAK_THRESHOLD / SKIP_FRAMES:
                     self.promote_bottle(track_id)
                     self.bottle_size_history.clear()
+                    return True
             else:
-                if self.track_ids_seen[track_id] >= TEMPORAL_CUTOFF_THRESHOLD / self.get_allowed_frame_skip():
+                if self.track_ids_seen[track_id] >= TEMPORAL_CUTOFF_THRESHOLD / SKIP_FRAMES:
                     self.promote_bottle(track_id)
                     return True
 
@@ -265,7 +265,7 @@ class Camera:
 
     def register_correction(self, corrected_index):
         self.sequential_correction_count += 1
-        if self.sequential_correction_count > TEMPORAL_CUTOFF_THRESHOLD / self.get_allowed_frame_skip():
+        if self.sequential_correction_count > TEMPORAL_CUTOFF_THRESHOLD / SKIP_FRAMES:
             self.bottle_index_counter = corrected_index
             log(f"I, Camera {self.name}, was wrong {self.sequential_correction_count} in a row. I really thought I was right but I guess I wasn't. As punishment I will correct myself, remember that the correct index from now on is {corrected_index} and I will try my best to never do this again. I'm so sorry.")
 
@@ -353,10 +353,7 @@ class BottleTracker:
             self.inference_thread.join(timeout=10)
         if self.batch_thread:
             self.batch_thread.join(timeout=10)
-        print("Background producer stopped")  
-    
-    def get_allowed_frame_skip(self):
-        return SKIP_FRAMES if SKIP_FRAMES > 0 else 1
+        print("Background producer stopped")
     
     def skip_frames(self, frames_to_skip: int, collect_skipped: bool = False):
         frames = []
@@ -387,7 +384,7 @@ class BottleTracker:
         meter = PerformanceMeter()
         for _ in range(num_frames):
             meter = PerformanceMeter()
-            self.skip_frames(self.get_allowed_frame_skip() - 1, collect_skipped=RENDER_SKIPPED_FRAMES)
+            self.skip_frames(SKIP_FRAMES - 1, collect_skipped=RENDER_SKIPPED_FRAMES)
             meter = PerformanceMeter()
             combined_frame = self.get_combined_frame()
             meter.log_elapsed("Combining frames")
@@ -451,7 +448,7 @@ class BottleTracker:
             camera.stack_rect = (x, y, w, h)
             log(f"Camera {camera.name} stack rect: {camera.stack_rect}")
     
-    def get_combined_frame(self):
+    def get_combined_frame(self, parallel = False):
         try:
             # log("Getting combined")
             
@@ -459,24 +456,49 @@ class BottleTracker:
             target_width = self.inference_width // 2
             
             combined_frame = np.zeros((self.inference_height, self.inference_width, 3), dtype=np.uint8)
-            # Sequential but optimized reading
-            for i, camera in enumerate(self.cameras):
-                frame = camera.get_inference_frame()
-                if frame is not None:
-                    # Resize immediately to target size
-                    frame = cv2.resize(frame, (self.inference_width // 2, self.inference_height // 2))
-                    # frames.append(frame)
-                    if i >= 4:
-                        break
-                    row = i // 2
-                    col = i % 2
-                    y = row * target_height
-                    x = col * target_width
-                    combined_frame[y:y+target_height, x:x+target_width] = frame
             
+            if not parallel:
+                # Sequential but optimized reading
+                for i, camera in enumerate(self.cameras):
+                    frame = camera.get_inference_frame()
+                    if frame is not None:
+                        # Resize immediately to target size
+                        frame = cv2.resize(frame, (self.inference_width // 2, self.inference_height // 2))
+                        # frames.append(frame)
+                        if i >= 4:
+                            break
+                        row = i // 2
+                        col = i % 2
+                        y = row * target_height
+                        x = col * target_width
+                        combined_frame[y:y+target_height, x:x+target_width] = frame
                 
-                # return self._combine_pre_resized_frames(frames)
-            return combined_frame
+                    
+                    # return self._combine_pre_resized_frames(frames)
+                return combined_frame
+            else:
+                frames = [None] * 4
+                with ThreadPoolExecutor(max_workers=4) as executor:
+                    future_to_idx = {
+                        executor.submit(self.cameras[i].get_inference_frame): i 
+                        for i in range(min(4, len(self.cameras)))
+                    }
+                    
+                    for future in concurrent.futures.as_completed(future_to_idx):
+                        idx = future_to_idx[future]
+                        try:
+                            frame = future.result()
+                            if frame is not None:
+                                resized_frame = cv2.resize(frame, (target_width, target_height))
+                                row = idx // 2
+                                col = idx % 2
+                                y = row * target_height
+                                x = col * target_width
+                                self.combined_frame[y:y+target_height, x:x+target_width] = resized_frame
+                        except Exception as e:
+                            log(f"Camera {idx} failed: {e}")
+                
+                return self.combined_frame
         except queue.Empty:
             return None
     
@@ -484,9 +506,6 @@ class BottleTracker:
         try:
             target_height = self.inference_height // 2
             target_width = self.inference_width // 2
-            
-            if not hasattr(self, 'combined_frame'):
-                self.combined_frame = np.zeros((self.inference_height, self.inference_width, 3), dtype=np.uint8)
             
             # Get frames in parallel
             frames = [None] * 4
@@ -656,6 +675,7 @@ class BottleTracker:
             
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
+                self.release()
                 break
             elif key == ord('p') or key == ord(' '):
                 cv2.waitKey(-1)

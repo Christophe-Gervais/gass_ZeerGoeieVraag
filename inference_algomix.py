@@ -32,6 +32,8 @@ COUNT_BY_BOTTLE_SIZE = True
 SIZE_STREAK_THRESHOLD = 3 # How many times in a row the bottle has to increase in size for it to be considered a new bottle.
 SIZE_INCREASE_THRESHOLD = 0
 
+YOLO_CONF = 0.8
+
 # Preview options
 PREVIEW_IMAGE_SIZE = 320
 SAVE_VIDEO = False
@@ -81,12 +83,14 @@ class Bottle:
     yolo_id: int
     was_corrected: bool = False
     width: float
+    is_ok: bool
     
-    def __init__(self, x: float, y: float, yolo_id: int):
+    def __init__(self, x: float, y: float, yolo_id: int, is_ok = True):
         self.x = x
         self.y = y
         self.yolo_id = yolo_id
         self.bottle_size_history: list[float] = list()
+        self.is_ok = is_ok
 
 class Batch:
     def __init__(self, frames, is_precombined = True):
@@ -247,10 +251,11 @@ class Camera:
         self.last_registered_bottle = bottle
         self.last_registered_bottle_track_id = track_id
         
-    def register_bottle(self, x, y, width, height, track_id):
+    def register_bottle(self, x, y, width, height, track_id, is_ok = True):
         if track_id in self.bottles:
             self.bottles[track_id].x = x
             self.bottles[track_id].y = y
+            self.bottles[track_id].is_ok = is_ok
             return False 
         
         if track_id in self.temporary_bottles:
@@ -280,7 +285,7 @@ class Camera:
                     return True
 
             return False
-        bottle = Bottle(x, y, track_id)
+        bottle = Bottle(x, y, track_id, is_ok)
         self.temporary_bottles[track_id] = bottle
         self.track_ids_seen[track_id] = 1
         
@@ -425,7 +430,7 @@ class BottleTracker:
             return True
         log(f"Running inference on batch of {len(inference_frames)} frames.")
         meter = PerformanceMeter()
-        resultses = self.model.track(inference_frames, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
+        resultses = self.model.track(inference_frames, conf=YOLO_CONF, persist=True, device=0, verbose=VERBOSE_YOLO)
         elapsed_time = meter.elapsed()
         ips = BATCH_SIZE / elapsed_time
         log(f"Finished inferencing. Took {meter.elapsed()} seconds for {BATCH_SIZE} images ({ips} images/s).")
@@ -566,7 +571,11 @@ class BottleTracker:
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
         
         if bottle is not None:
-            cv2.putText(frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, id_color, 2)
+            # cv2.putText(frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, id_color, 2)
+            status_text = "OK" if bottle.is_ok else "NOK"
+            label = f'Bottle {bottle.index} ({status_text})'
+            # Changed font scale from 1 to 0.4 and thickness from 2 to 1 for smaller text
+            cv2.putText(frame, label, (int(x1 + 5), int(y1 + 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, id_color, 1)
             cv2.putText(frame, 'YOLO ID: ' + str(bottle.yolo_id), (int(x1 + 10), int(y1 + 50)), cv2.FONT_HERSHEY_SIMPLEX, 1, id_color, 2)
         
         return x1, y1, y2, y2
@@ -632,8 +641,15 @@ class BottleTracker:
                     
                         boxes = result.boxes.xywh.cpu()
                         track_ids = None
+                        class_ids = None
+                        
                         if result.boxes.id is not None:
                             track_ids = result.boxes.id.cpu().numpy().astype(int)
+                            
+                        
+                        # Fetch the class labels op (0 = OK, 1 = NOK)
+                        if result.boxes.cls is not None:
+                            class_ids = result.boxes.cls.cpu().numpy().astype(int)
                         
                         for box_index, box in enumerate(boxes):
                             x_center, y_center, box_width, box_height = box
@@ -650,7 +666,11 @@ class BottleTracker:
                                 
                                 track_id = track_ids[box_index]
                                 
-                                if camera.register_bottle(relative_x, relative_y, box_width, box_height, track_id):
+                                is_ok = True
+                                if class_ids is not None:
+                                    is_ok = (class_ids[box_index] == 0)
+                                
+                                if camera.register_bottle(relative_x, relative_y, box_width, box_height, track_id, is_ok):
                                     blabber("Bottle got accepted as being new.")
                                 # Render box on frame
                                 # if camera.name == "Top":
@@ -663,13 +683,16 @@ class BottleTracker:
                                     bottle_id_color = (0, 0, 255)
                                 if track_id in camera.bottles:
                                     bottle = camera.bottles[track_id]
-                                    bottle_id_color = (255, 255, 0) if bottle.was_corrected else (0, 255, 0)
+                                    # bottle_id_color = (255, 255, 0) if bottle.was_corrected else (0, 255, 0)
+                                    # Groen voor OK bottles, Rood voor NOK bottles
+                                    if bottle.was_corrected:
+                                        bottle_id_color = (255, 255, 0)  # Geel voor gecorrigeerde bottles
+                                    elif bottle.is_ok:
+                                        bottle_id_color = (0, 255, 0)  # Groen voor OK
+                                    else:
+                                        bottle_id_color = (0, 0, 255)  # Rood voor NOK
                                 
                                 self.draw_rect_on_frame(output_frame, x_center, y_center, box_width, box_height, scale, bottle, bottle_id_color)
-                                
-                                
-                                # def draw_bottle_id(color):
-                                    
                                 
                 if VERBOSE_DBUG:
                     cv2.putText(output_frame, f'Inference queue: {self.frame_queue.qsize()} batch queue: {self.batch_queue.qsize()}', (10, output_frame_height - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)

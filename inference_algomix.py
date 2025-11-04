@@ -21,16 +21,21 @@ IMAGE_SIZE = 160
 BATCH_SIZE = 7
 SKIP_FRAMES = 1 # Skip this many frames between each processing step
 TEMPORAL_CUTOFF_THRESHOLD = 40  # Amount of frames a bottle needs to be seen to be considered tracked.
+PRECOMBINE = True
+
+# Correction algorithm options
+BOTTLE_CORRECTION_START_OFFSET = 20 # Amount of frames to wait before allowing the correction algorithm to kick in.
 BOTTLE_DISAGREEMENT_TOLERANCE = 5  # Amount of frames the cameras can disagree before correction is applied.
 SEQUENTIAL_CORRECTION_THRESHOLD = 2 # If a tracker has to be corrected this many times in a row, it's permanently steered back on track.
 ENFORCE_INCREMENTAL_CORRECTION = False # Make sure the corrected index is unique.
 EXTRA_CORRECTION = False # Allow correcting half the feed if one half disagrees with itself.
 LOWER_DISPUTE_CORRECTION = True
-PRECOMBINE = True
 
-COUNT_BY_BOTTLE_SIZE = True
+# Counting algorithm options
+COUNT_BY_BOTTLE_SIZE = True # Use the bottle size to count bottles.
 SIZE_STREAK_THRESHOLD = 3 # How many times in a row the bottle has to increase in size for it to be considered a new bottle.
-SIZE_INCREASE_THRESHOLD = 0
+SIZE_INCREASE_THRESHOLD = 0 # How much the bottle has to increase in size to be considered entering the frame.
+MOVEMENT_THRESHOLD = 10 # How much the bottle has to be moved for the size change to be registered. This is to prevent problems when the belt is stopped.
 
 YOLO_CONF = 0.8
 
@@ -84,6 +89,7 @@ class Bottle:
     was_corrected: bool = False
     width: float
     is_ok: bool
+    times_seen: int
     
     def __init__(self, x: float, y: float, yolo_id: int, is_ok = True):
         self.x = x
@@ -91,6 +97,7 @@ class Bottle:
         self.yolo_id = yolo_id
         self.bottle_size_history: list[float] = list()
         self.is_ok = is_ok
+        self.times_seen = 1
 
 class Batch:
     def __init__(self, frames, is_precombined = True):
@@ -254,12 +261,14 @@ class Camera:
             self.bottles[track_id].x = x
             self.bottles[track_id].y = y
             self.bottles[track_id].is_ok = is_ok
+            self.bottles[track_id].times_seen += 1
             return False 
         
         if track_id in self.temporary_bottles:
-            self.track_ids_seen[track_id] += 1
             self.temporary_bottles[track_id].x = x
             self.temporary_bottles[track_id].y = y
+            self.temporary_bottles[track_id].times_seen += 1
+            self.track_ids_seen[track_id] += 1
             
             bottle = self.temporary_bottles[track_id]
             if COUNT_BY_BOTTLE_SIZE:
@@ -275,7 +284,7 @@ class Camera:
                 print("Size streak:", size_streak, " YOLO ID: ", bottle.yolo_id)
                 if size_streak > SIZE_STREAK_THRESHOLD / SKIP_FRAMES:
                     self.promote_bottle(track_id)
-                    bottle.bottle_size_history.clear()
+                    # bottle.bottle_size_history.clear()
                     return True
             else:
                 if self.track_ids_seen[track_id] >= TEMPORAL_CUTOFF_THRESHOLD / SKIP_FRAMES:
@@ -605,20 +614,7 @@ class BottleTracker:
         except queue.Empty:
             return None
     
-    def solve_disagreements(self):
-        last_bottle_indices = set()
-        for camera in self.cameras:
-            if camera.last_registered_bottle is not None:
-                last_bottle_indices.add(camera.last_registered_bottle.index)
-        
-        for camera in self.cameras:
-            if len(last_bottle_indices) > 1:
-                # log("Warning: Cameras disagree on last registered bottle indices:", last_bottle_indices, "Camera number:", camera_index)
-                camera.disagreement_count += 1
-                
-                if camera.disagreement_count >= BOTTLE_DISAGREEMENT_TOLERANCE:
-                    self.correct_index_disagreements()
-                    camera.disagreement_count = 0
+    
     
     def run(self):
         self.start_preprocessing()
@@ -713,12 +709,29 @@ class BottleTracker:
         log("Finished processing.")
         self.release()
         
+    def solve_disagreements(self):
+        last_bottle_indices = set()
+        for camera in self.cameras:
+            if camera.last_registered_bottle is not None:
+                last_bottle_indices.add(camera.last_registered_bottle.index)
+        
+        for camera in self.cameras:
+            if len(last_bottle_indices) > 1:
+                # log("Warning: Cameras disagree on last registered bottle indices:", last_bottle_indices, "Camera number:", camera_index)
+                camera.disagreement_count += 1
+                
+                if camera.disagreement_count >= BOTTLE_DISAGREEMENT_TOLERANCE:
+                    self.correct_index_disagreements()
+                    camera.disagreement_count = 0
+        
     def correct_index_disagreements(self):
         # Find the most common last registered bottle index among cameras
         log("Correcting index disagreements among cameras.")
         last_indices = []
         for camera in self.cameras:
             if camera.last_registered_bottle is not None:
+                if camera.last_registered_bottle.times_seen < BOTTLE_CORRECTION_START_OFFSET:
+                    return
                 last_indices.append(camera.last_registered_bottle.index)
         log("Last registered bottle indices from cameras:", last_indices)
         if not last_indices:

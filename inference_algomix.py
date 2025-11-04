@@ -18,7 +18,7 @@ MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 
 # Algorithm options
 IMAGE_SIZE = 160
-BATCH_SIZE = 70
+BATCH_SIZE = 7
 SKIP_FRAMES = 1 # Skip this many frames between each processing step
 TEMPORAL_CUTOFF_THRESHOLD = 40  # Amount of frames a bottle needs to be seen to be considered tracked.
 BOTTLE_DISAGREEMENT_TOLERANCE = 5  # Amount of frames the cameras can disagree before correction is applied.
@@ -118,7 +118,6 @@ class Camera:
     capture_fps: float
     frames_since_last_registration: int = 0
     last_registered_bottle: Bottle = None
-    last_registered_bottle_track_id: int = -1
     sequential_correction_count: int = 0
     
     
@@ -249,7 +248,6 @@ class Camera:
         blabber("Bottle assigned index:", bottle.index, "Track ID:", track_id, "Camera:", self.name)
         del self.temporary_bottles[track_id]
         self.last_registered_bottle = bottle
-        self.last_registered_bottle_track_id = track_id
         
     def register_bottle(self, x, y, width, height, track_id, is_ok = True):
         if track_id in self.bottles:
@@ -575,8 +573,8 @@ class BottleTracker:
             status_text = "OK" if bottle.is_ok else "NOK"
             label = f'Bottle {bottle.index} ({status_text})'
             # Changed font scale from 1 to 0.4 and thickness from 2 to 1 for smaller text
-            cv2.putText(frame, label, (int(x1 + 5), int(y1 + 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, id_color, 1)
-            cv2.putText(frame, 'YOLO ID: ' + str(bottle.yolo_id), (int(x1 + 10), int(y1 + 50)), cv2.FONT_HERSHEY_SIMPLEX, 1, id_color, 2)
+            cv2.putText(frame, label, (int(x1 + 5), int(y1 + 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, id_color, 1)
+            cv2.putText(frame, 'YOLO ID: ' + str(bottle.yolo_id), (int(x1 + 10), int(y1 + 50)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, id_color, 2)
         
         return x1, y1, y2, y2
     

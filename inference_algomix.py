@@ -282,9 +282,9 @@ class PerformanceMeter:
             print(message, f"took {self.elapsed()} seconds.")
         
 
-class Frame:
-    def __init__(self, frame, is_precombined = True):
-        self.frame: cv2.typing.MatLike = frame
+class Batch:
+    def __init__(self, frames, is_precombined = True):
+        self.frames: list[cv2.typing.MatLike] = frames
         self.is_precombined = is_precombined
 
 class BottleTracker:
@@ -304,7 +304,7 @@ class BottleTracker:
         
         self.frame_queue: queue.Queue[cv2.typing.MatLike] = queue.Queue()
         self.results_queue = queue.Queue()
-        self.batch_queue: queue.Queue[list[Frame]] = queue.Queue()
+        self.batch_queue: queue.Queue[Batch] = queue.Queue()
         self.last_results = None
         
         self.aspect_ratio = cameras[0].aspect_ratio
@@ -383,7 +383,7 @@ class BottleTracker:
         self.wait_if_queue_full(self.batch_queue)
         
         more = True
-        batch: list[Frame] = []
+        frames: list[cv2.typing.MatLike] = []
         meter = PerformanceMeter()
         for _ in range(num_frames):
             meter = PerformanceMeter()
@@ -394,10 +394,10 @@ class BottleTracker:
             if combined_frame is None:
                 more = False
                 break
-            frame = Frame(combined_frame)
-            batch.append(frame)
+            frames.append(combined_frame)
         
         meter.log_elapsed("Batch generation")
+        batch = Batch(frames)
         self.batch_queue.put(batch)
         return more
     
@@ -412,8 +412,9 @@ class BottleTracker:
         self.wait_if_queue_full(self.frame_queue)
                 
         log(f"Queue freed up.")
+        batch = self.batch_queue.get()
         
-        inference_frames = self.batch_queue.get()
+        inference_frames = batch.frames
         output_frames = inference_frames
         skipped_frameses = []
         finished = False

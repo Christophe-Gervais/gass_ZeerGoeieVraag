@@ -24,7 +24,7 @@ IMAGE_SIZE = 160
 BATCH_SIZE = 7
 FRAMES_TO_SKIP = 1 # Skip this many frames between each processing step, -1 to disable.
 TEMPORAL_CUTOFF_THRESHOLD = 40  # Amount of frames a bottle needs to be seen to be considered tracked.
-PRECOMBINE = True
+PRECOMBINE = False
 
 # Correction algorithm options
 BOTTLE_CORRECTION_START_OFFSET = 20 # Amount of frames to wait before allowing the correction algorithm to kick in.
@@ -101,10 +101,12 @@ class Plotter:
         self._fig = None
         self._ax1 = None
         self._ax2 = None
+        self._ax3 = None
         self._size_line = None
         self._dist_line = None
+        self._dsize_line = None
         
-        self._fig, (self._ax1, self._ax2) = plt.subplots(2, 1, figsize=(6, 6))
+        self._fig, (self._ax1, self._ax2, self._ax3) = plt.subplots(3, 1, figsize=(6, 6))
         self._fig.suptitle(f"Bottle YOLO ID: {yolo_id} (Live)")
         
         self._ax1.set_ylabel("Size")
@@ -117,23 +119,42 @@ class Plotter:
         self._ax2.grid(True)
         (self._dist_line,) = self._ax2.plot([], [], 'r-o', label='Movement')
         self._ax2.legend()
+        
+        self._ax3.set_ylabel("Size Change over x")
+        self._ax3.grid(True)
+        (self._dsize_line,) = self._ax3.plot([], [], 'b-o', label='Size Change')
+        self._ax3.legend()
 
         self._plot_initialized = True
         self._fig.canvas.draw()
         plt.show(block=False)
     
-    def plot(self, size_hist):
+    def plot(self, size_hist: list[tuple[float, float, float]]):
+        # frames = list(range(len(size_hist)))
+        # sizes = [s for s, d in size_hist]
+        # dists = [d for s, d in size_hist]
+        # sizes = []
+        # dists = []
+        # dsizes = []
+        # for size, dist in size_hist:
+        #     sizes.append(size)
+        #     dists.append(dist)
+        #     dsizes.append
         frames = list(range(len(size_hist)))
-        sizes = [s for s, d in size_hist]
-        dists = [d for s, d in size_hist]
+        sizes = [s for s, d, ds in size_hist]
+        dists = [d for s, d, ds in size_hist]
+        dsizes = [ds for s, d, ds in size_hist]
 
         self._size_line.set_data(frames, sizes)
         self._dist_line.set_data(frames, dists)
+        self._dsize_line.set_data(frames, dsizes)
 
         self._ax1.relim()
         self._ax1.autoscale_view()
         self._ax2.relim()
         self._ax2.autoscale_view()
+        self._ax3.relim()
+        self._ax3.autoscale_view()
 
         self._fig.canvas.draw()
         self._fig.canvas.flush_events()
@@ -213,7 +234,8 @@ class Bottle:
     
     def register_state_change(self, size) -> BottleState:
         distance = math.dist((self.x, self.y), (self.prev_x, self.prev_y))
-        self.bottle_size_dist_history.append((size, distance))
+        dsize = self.calculate_size_change_from_x_number_of_frames(5)
+        self.bottle_size_dist_history.append((size, distance, dsize))
         
         
         
@@ -1117,11 +1139,11 @@ class BottleTracker(FrameGenerator):
 
 def main():
     cameras: list[Camera] = [
-        Camera('Top', 'videos/14_55/14_55_top_cropped.mp4', start_skip=3),
+        # Camera('Top', 'videos/14_55/14_55_top_cropped.mp4', start_skip=3),
         Camera('Front', 'videos/14_55/14_55_front_cropped.mp4', start_skip=0),
         
-        Camera('Back Left', 'videos/14_55/14_55_back_left_cropped.mp4', start_skip=2),
-        Camera('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_skip=1, start_index=-1),
+        # Camera('Back Left', 'videos/14_55/14_55_back_left_cropped.mp4', start_skip=2),
+        # Camera('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_skip=1, start_index=-1),
     ]
     
     bottle_tracker = BottleTracker(cameras)

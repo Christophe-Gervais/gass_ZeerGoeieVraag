@@ -8,7 +8,8 @@ import queue
 from time import time, sleep, perf_counter
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
-
+from enum import Enum
+import math
 
 # Input options
 MODEL_PATH = "runs/detect/train26/weights/best.pt"
@@ -81,26 +82,78 @@ class PerformanceMeter:
         if VERBOSE_PERF:
             print(message, f"took {self.elapsed()} seconds.")
         
+class BottleState(Enum):
+    UNKNOWN = 0
+    ENTERING = 1
+    IN_FRAME = 2
+    EXITING = 3
+    OUT_OF_FRAME = 4
 
+class Vector:
+    x: float
+    y: float
 
 class Bottle:
     index: int = -1
     x: float
     y: float
+    prev_x: float
+    prev_y: float
     in_view: bool = True
     yolo_id: int
     was_corrected: bool = False
     width: float
     is_ok: bool
     times_seen: int
+    state: BottleState
+    bottle_size_history: list[tuple[float, float]]
     
     def __init__(self, x: float, y: float, yolo_id: int, is_ok = True):
+        self.update(x, y, is_ok)
+        # self.x = x
+        # self.y = y
+        self.yolo_id = yolo_id
+        self.bottle_size_history = list()
+        # self.is_ok = is_ok
+        self.times_seen = 1
+        self.state = BottleState.UNKNOWN
+    
+    def update(self, x: float, y: float, is_ok: bool | None):
         self.x = x
         self.y = y
-        self.yolo_id = yolo_id
-        self.bottle_size_history: list[float] = list()
-        self.is_ok = is_ok
-        self.times_seen = 1
+        if is_ok is not None:
+            self.is_ok = is_ok
+        self.times_seen += 1
+    
+    def calculate_state_change(self, size) -> BottleState:
+        size_streak = 0
+        last_size = 0
+        for size in self.bottle_size_history:
+            if size <= last_size + SIZE_INCREASE_THRESHOLD:
+                log("This one didn't grow enough.")
+                break
+            last_size = size
+            size_streak += 1
+        print("Size streak:", size_streak, " YOLO ID: ", self.yolo_id)
+        if size_streak > SIZE_STREAK_THRESHOLD / get_frame_skip_divider():
+            # self.promote_bottle(track_id)
+            # # bottle.bottle_size_history.clear()
+            # return True
+            return BottleState.ENTERING
+        elif size_streak < SIZE_STREAK_THRESHOLD / get_frame_skip_divider():
+            # self.promote_bottle(track_id)
+            # # bottle.bottle_size_history.clear()
+            # return True
+            return BottleState.ENTERING
+    
+    def register_state_change(self, width) -> BottleState:
+        self.bottle_size_history.append(size)
+        
+        self.state = self.calculate_state_change(width)
+        
+        self.prev_x = self.x
+        self.prev_y = self.y
+        return self.state
 
 class Batch:
     def __init__(self, frames, is_precombined = True):
@@ -264,11 +317,6 @@ class Camera(FrameGenerator):
             return None
         return frame
     
-    # def get_frame(self):
-    #     try:
-    #         return self.frame_queue.get(), self.results_queue.get()
-    #     except queue.Empty:
-    #         return None
     def render_frame(self):
         frame, results = self.get_frame()
         
@@ -290,6 +338,7 @@ class Camera(FrameGenerator):
                     self.track_ids = result.boxes.id.cpu().numpy().astype(int)
                 
                 cv2.putText(frame, 'Camera: ' + self.name, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                cv2.putText(frame, 'Correction count: ' + str(self.sequential_correction_count), (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 2)
                 
                 for box_index, box in enumerate(boxes):
                     x_center, y_center, box_width, box_height = box
@@ -397,33 +446,37 @@ class Camera(FrameGenerator):
         
     def register_bottle(self, x, y, width, height, track_id, is_ok = True):
         if track_id in self.bottles:
-            self.bottles[track_id].x = x
-            self.bottles[track_id].y = y
-            self.bottles[track_id].is_ok = is_ok
-            self.bottles[track_id].times_seen += 1
+            # self.bottles[track_id].x = x
+            # self.bottles[track_id].y = y
+            # self.bottles[track_id].is_ok = is_ok
+            # self.bottles[track_id].times_seen += 1
+            self.bottles[track_id].update(x, y, is_ok)
             return False 
         
         if track_id in self.temporary_bottles:
-            self.temporary_bottles[track_id].x = x
-            self.temporary_bottles[track_id].y = y
-            self.temporary_bottles[track_id].times_seen += 1
-            self.track_ids_seen[track_id] += 1
+            # self.temporary_bottles[track_id].x = x
+            # self.temporary_bottles[track_id].y = y
+            # self.temporary_bottles[track_id].times_seen += 1
+            # self.track_ids_seen[track_id] += 1
             
             bottle = self.temporary_bottles[track_id]
+            bottle.update(x, y, is_ok)
             if COUNT_BY_BOTTLE_SIZE:
-                bottle.bottle_size_history.append(width)
-                size_streak = 0
-                last_size = 0
-                for size in bottle.bottle_size_history:
-                    if size <= last_size + SIZE_INCREASE_THRESHOLD:
-                        log("This one didn't grow enough.")
-                        break
-                    last_size = size
-                    size_streak += 1
-                print("Size streak:", size_streak, " YOLO ID: ", bottle.yolo_id)
-                if size_streak > SIZE_STREAK_THRESHOLD / get_frame_skip_divider():
-                    self.promote_bottle(track_id)
+                # bottle.bottle_size_history.append(width)
+                # size_streak = 0
+                # last_size = 0
+                # for size in bottle.bottle_size_history:
+                #     if size <= last_size + SIZE_INCREASE_THRESHOLD:
+                #         log("This one didn't grow enough.")
+                #         break
+                #     last_size = size
+                #     size_streak += 1
+                # print("Size streak:", size_streak, " YOLO ID: ", bottle.yolo_id)
+                # if size_streak > SIZE_STREAK_THRESHOLD / get_frame_skip_divider():
+                #     self.promote_bottle(track_id)
+                state = bottle.register_state_change(width)
                     # bottle.bottle_size_history.clear()
+                if state is BottleState.ENTERING:
                     return True
             else:
                 if self.track_ids_seen[track_id] >= TEMPORAL_CUTOFF_THRESHOLD / get_frame_skip_divider():

@@ -10,6 +10,8 @@ import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 import math
+import matplotlib.pyplot as plt
+
 
 # Input options
 MODEL_PATH = "runs/detect/train26/weights/best.pt"
@@ -22,7 +24,7 @@ IMAGE_SIZE = 160
 BATCH_SIZE = 7
 FRAMES_TO_SKIP = 1 # Skip this many frames between each processing step, -1 to disable.
 TEMPORAL_CUTOFF_THRESHOLD = 40  # Amount of frames a bottle needs to be seen to be considered tracked.
-PRECOMBINE = False
+PRECOMBINE = True
 
 # Correction algorithm options
 BOTTLE_CORRECTION_START_OFFSET = 20 # Amount of frames to wait before allowing the correction algorithm to kick in.
@@ -93,6 +95,49 @@ class Vector:
     x: float
     y: float
 
+class Plotter:
+    def __init__(self, yolo_id):
+        self._plot_initialized = False
+        self._fig = None
+        self._ax1 = None
+        self._ax2 = None
+        self._size_line = None
+        self._dist_line = None
+        
+        self._fig, (self._ax1, self._ax2) = plt.subplots(2, 1, figsize=(6, 6))
+        self._fig.suptitle(f"Bottle YOLO ID: {yolo_id} (Live)")
+        
+        self._ax1.set_ylabel("Size")
+        self._ax1.grid(True)
+        (self._size_line,) = self._ax1.plot([], [], 'b-o', label='Size')
+        self._ax1.legend()
+
+        self._ax2.set_xlabel("Frame")
+        self._ax2.set_ylabel("Move Dist")
+        self._ax2.grid(True)
+        (self._dist_line,) = self._ax2.plot([], [], 'r-o', label='Movement')
+        self._ax2.legend()
+
+        self._plot_initialized = True
+        self._fig.canvas.draw()
+        plt.show(block=False)
+    
+    def plot(self, size_hist):
+        frames = list(range(len(size_hist)))
+        sizes = [s for s, d in size_hist]
+        dists = [d for s, d in size_hist]
+
+        self._size_line.set_data(frames, sizes)
+        self._dist_line.set_data(frames, dists)
+
+        self._ax1.relim()
+        self._ax1.autoscale_view()
+        self._ax2.relim()
+        self._ax2.autoscale_view()
+
+        self._fig.canvas.draw()
+        self._fig.canvas.flush_events()
+
 class Bottle:
     index: int = -1
     x: float
@@ -106,17 +151,22 @@ class Bottle:
     is_ok: bool
     times_seen: int
     state: BottleState
-    bottle_size_history: list[tuple[float, float]]
+    bottle_size_dist_history: list[tuple[float, float]]
+    plotter: Plotter
     
     def __init__(self, x: float, y: float, yolo_id: int, is_ok = True):
+        self.times_seen = 0
         self.update(x, y, is_ok)
+        self.prev_x = 0
+        self.prev_y = 0
         # self.x = x
         # self.y = y
         self.yolo_id = yolo_id
-        self.bottle_size_history = list()
+        self.bottle_size_dist_history = list()
         # self.is_ok = is_ok
-        self.times_seen = 1
         self.state = BottleState.UNKNOWN
+        
+        self.plotter = Plotter(self.yolo_id)
     
     def update(self, x: float, y: float, is_ok: bool | None):
         self.x = x
@@ -125,31 +175,51 @@ class Bottle:
             self.is_ok = is_ok
         self.times_seen += 1
     
-    def calculate_state_change(self, size) -> BottleState:
-        size_streak = 0
+    def calculate_size_change_from_x_number_of_frames(self, x) -> float:
+        if len(self.bottle_size_dist_history) < x:
+            return 0.0
+        
+        history = self.bottle_size_dist_history[-x:]
+        
+        total_change = 0.0
+        for i in range(1, len(history)):
+            total_change += history[i][0] - history[i - 1][0]
+
+        return total_change / (len(history) - 1)
+    
+    def calculate_state_change(self) -> BottleState:
+        # size_streak = 0
         last_size = 0
-        for size in self.bottle_size_history:
+        size_change = 0
+        for size_dist in self.bottle_size_dist_history:
+            size = size_dist[0]
+            dist = size_dist[1]
             if size <= last_size + SIZE_INCREASE_THRESHOLD:
                 log("This one didn't grow enough.")
                 break
             last_size = size
-            size_streak += 1
-        print("Size streak:", size_streak, " YOLO ID: ", self.yolo_id)
-        if size_streak > SIZE_STREAK_THRESHOLD / get_frame_skip_divider():
+            # size_streak += 1
+        # print("Size streak:", size_streak, " YOLO ID: ", self.yolo_id)
+        # if size_streak > SIZE_STREAK_THRESHOLD / get_frame_skip_divider():
+        #     # self.promote_bottle(track_id)
+        #     # # bottle.bottle_size_history.clear()
+        #     # return True
+        #     return BottleState.ENTERING
+        # elif size_streak < SIZE_STREAK_THRESHOLD / get_frame_skip_divider():
             # self.promote_bottle(track_id)
             # # bottle.bottle_size_history.clear()
             # return True
-            return BottleState.ENTERING
-        elif size_streak < SIZE_STREAK_THRESHOLD / get_frame_skip_divider():
-            # self.promote_bottle(track_id)
-            # # bottle.bottle_size_history.clear()
-            # return True
-            return BottleState.ENTERING
+        return BottleState.ENTERING
     
-    def register_state_change(self, width) -> BottleState:
-        self.bottle_size_history.append(size)
+    def register_state_change(self, size) -> BottleState:
+        distance = math.dist((self.x, self.y), (self.prev_x, self.prev_y))
+        self.bottle_size_dist_history.append((size, distance))
         
-        self.state = self.calculate_state_change(width)
+        
+        
+        self.state = self.calculate_state_change()
+        
+        self.plotter.plot(self.bottle_size_dist_history)
         
         self.prev_x = self.x
         self.prev_y = self.y

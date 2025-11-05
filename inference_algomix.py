@@ -269,7 +269,7 @@ class Bottle:
         
         
         self.state = self.calculate_state_change()
-        log("Made me think it should be", self.state)
+        blabber("Made me think it should be", self.state)
         if self.state is BottleState.EXITING and self.plotter is not None:
             self.plotter.release()
             self.plotter = None
@@ -297,6 +297,48 @@ class FrameGenerator:
             return self.frame_queue.get(), self.results_queue.get()
         except queue.Empty:
             return None
+    
+    def draw_rect_on_frame(self, frame, x_center, y_center, box_width, box_height, scale, bottle: Bottle = None, id_color=(255, 0, 0)):
+        
+        output_frame_width = frame.shape[1]
+        output_frame_height = frame.shape[0]
+        
+        scaled_x_center = int(x_center * scale)
+        scaled_y_center = int(y_center * scale)
+        scaled_box_width = int(box_width * scale)
+        scaled_box_height = int(box_height * scale)
+        
+        x1 = int(scaled_x_center - scaled_box_width / 2)
+        y1 = int(scaled_y_center - scaled_box_height / 2)
+        x2 = int(scaled_x_center + scaled_box_width / 2)
+        y2 = int(scaled_y_center + scaled_box_height / 2)
+        
+        # Ensure coordinates are within frame bounds
+        x1 = max(0, min(x1, output_frame_width - 1))
+        y1 = max(0, min(y1, output_frame_height - 1))
+        x2 = max(0, min(x2, output_frame_width - 1))
+        y2 = max(0, min(y2, output_frame_height - 1))
+        
+        thickness = 2
+        bounding_color = (0, 0, 255) # Red
+        if bottle.state is BottleState.IN_FRAME:
+            bounding_color = (0, 255, 0) # Green
+        elif bottle.state is BottleState.ENTERING:
+            bounding_color = (0, 255, 255) # Yellow
+        elif bottle.state is BottleState.EXITING:
+            bounding_color = (255, 0, 255) # Purple
+        
+        cv2.rectangle(frame, (x1, y1), (x2, y2), bounding_color, thickness)
+        
+        if bottle is not None:
+            # cv2.putText(frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, id_color, 2)
+            status_text = "OK" if bottle.is_ok else "NOK"
+            label = f'Bottle {bottle.index} ({status_text})'
+            # Changed font scale from 1 to 0.4 and thickness from 2 to 1 for smaller text
+            cv2.putText(frame, label, (int(x1 + 5), int(y1 + 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, id_color, 1)
+            cv2.putText(frame, 'YOLO ID: ' + str(bottle.yolo_id), (int(x1 + 10), int(y1 + 50)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, id_color, 2)
+        
+        return x1, y1, y2, y2
 
 class Camera(FrameGenerator):
     name: str
@@ -869,47 +911,7 @@ class BottleTracker(FrameGenerator):
             log(f"Combined frame error: {e}")
             return None
     
-    def draw_rect_on_frame(self, frame, x_center, y_center, box_width, box_height, scale, bottle: Bottle = None, id_color=(255, 0, 0)):
-        
-        output_frame_width = frame.shape[1]
-        output_frame_height = frame.shape[0]
-        
-        scaled_x_center = int(x_center * scale)
-        scaled_y_center = int(y_center * scale)
-        scaled_box_width = int(box_width * scale)
-        scaled_box_height = int(box_height * scale)
-        
-        x1 = int(scaled_x_center - scaled_box_width / 2)
-        y1 = int(scaled_y_center - scaled_box_height / 2)
-        x2 = int(scaled_x_center + scaled_box_width / 2)
-        y2 = int(scaled_y_center + scaled_box_height / 2)
-        
-        # Ensure coordinates are within frame bounds
-        x1 = max(0, min(x1, output_frame_width - 1))
-        y1 = max(0, min(y1, output_frame_height - 1))
-        x2 = max(0, min(x2, output_frame_width - 1))
-        y2 = max(0, min(y2, output_frame_height - 1))
-        
-        thickness = 2
-        bounding_color = (0, 0, 255) # Red
-        if bottle.state is BottleState.IN_FRAME:
-            bounding_color = (0, 255, 0) # Green
-        elif bottle.state is BottleState.ENTERING:
-            bounding_color = (0, 255, 255) # Yellow
-        elif bottle.state is BottleState.EXITING:
-            bounding_color = (255, 0, 255) # Purple
-        
-        cv2.rectangle(frame, (x1, y1), (x2, y2), bounding_color, thickness)
-        
-        if bottle is not None:
-            # cv2.putText(frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, id_color, 2)
-            status_text = "OK" if bottle.is_ok else "NOK"
-            label = f'Bottle {bottle.index} ({status_text})'
-            # Changed font scale from 1 to 0.4 and thickness from 2 to 1 for smaller text
-            cv2.putText(frame, label, (int(x1 + 5), int(y1 + 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, id_color, 1)
-            cv2.putText(frame, 'YOLO ID: ' + str(bottle.yolo_id), (int(x1 + 10), int(y1 + 50)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, id_color, 2)
-        
-        return x1, y1, y2, y2
+    
     
     def wait_if_needed(self):
         now = time()
@@ -937,177 +939,177 @@ class BottleTracker(FrameGenerator):
     
     
     
-    def run(self):
-        self.start_preprocessing()
-        while True:
-            combined_frame, results = self.get_frame()
-            
-            output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
-            output_frame_height = PREVIEW_IMAGE_SIZE
-            output_frame = cv2.resize(combined_frame, (output_frame_width, output_frame_height))
+    def run(self, precombined = True):
+        if precombined:
+            self.start_preprocessing()
+            while True:
+                combined_frame, results = self.get_frame()
+                
+                output_frame_width = int(PREVIEW_IMAGE_SIZE * self.aspect_ratio)
+                output_frame_height = PREVIEW_IMAGE_SIZE
+                output_frame = cv2.resize(combined_frame, (output_frame_width, output_frame_height))
 
-            scale = output_frame_height / self.inference_height
-            
-            for result in results:
-                # Get results inside the camera stack frame rect
-                if result.boxes is not None:
-                    for camera in self.cameras:
-                        x, y, w, h = camera.stack_rect
-                    
-                        boxes = result.boxes.xywh.cpu()
-                        track_ids = None
-                        class_ids = None
+                scale = output_frame_height / self.inference_height
+                
+                for result in results:
+                    # Get results inside the camera stack frame rect
+                    if result.boxes is not None:
+                        for camera in self.cameras:
+                            x, y, w, h = camera.stack_rect
                         
-                        if result.boxes.id is not None:
-                            track_ids = result.boxes.id.cpu().numpy().astype(int)
+                            boxes = result.boxes.xywh.cpu()
+                            track_ids = None
+                            class_ids = None
                             
-                        
-                        # Fetch the class labels op (0 = OK, 1 = NOK)
-                        if result.boxes.cls is not None:
-                            class_ids = result.boxes.cls.cpu().numpy().astype(int)
-                        
-                        for box_index, box in enumerate(boxes):
-                            x_center, y_center, box_width, box_height = box
+                            if result.boxes.id is not None:
+                                track_ids = result.boxes.id.cpu().numpy().astype(int)
+                                
                             
-                            blabber("Absolute center:", x_center, y_center, "for camera", camera.name, "Camera rect:", camera.stack_rect)
+                            # Fetch the class labels op (0 = OK, 1 = NOK)
+                            if result.boxes.cls is not None:
+                                class_ids = result.boxes.cls.cpu().numpy().astype(int)
                             
-                            # Check if the box is inside the camera's stack rect
-                            if x <= x_center <= x + w and y <= y_center <= y + h:
-                                relative_x = (x_center - x) / w
-                                relative_y = (y_center - y) / h
+                            for box_index, box in enumerate(boxes):
+                                x_center, y_center, box_width, box_height = box
                                 
-                                if track_ids is None:
-                                    continue
+                                blabber("Absolute center:", x_center, y_center, "for camera", camera.name, "Camera rect:", camera.stack_rect)
                                 
-                                track_id = track_ids[box_index]
-                                
-                                is_ok = True
-                                if class_ids is not None:
-                                    is_ok = (class_ids[box_index] == 0)
-                                
-                                if camera.register_bottle(relative_x, relative_y, box_width, box_height, track_id, is_ok):
-                                    blabber("Bottle got accepted as being new.")
-                                # Render box on frame
-                                # if camera.name == "Top":
-                                # self.draw_rect_on_frame(output_frame, abs_x_center, abs_y_center, box_width, box_height, scale)
-                                
-                                bottle = None
-                                bottle_id_color = (0, 0, 255)
-                                if track_id in camera.temporary_bottles:
-                                    bottle = camera.temporary_bottles[track_id]
+                                # Check if the box is inside the camera's stack rect
+                                if x <= x_center <= x + w and y <= y_center <= y + h:
+                                    relative_x = (x_center - x) / w
+                                    relative_y = (y_center - y) / h
+                                    
+                                    if track_ids is None:
+                                        continue
+                                    
+                                    track_id = track_ids[box_index]
+                                    
+                                    is_ok = True
+                                    if class_ids is not None:
+                                        is_ok = (class_ids[box_index] == 0)
+                                    
+                                    if camera.register_bottle(relative_x, relative_y, box_width, box_height, track_id, is_ok):
+                                        blabber("Bottle got accepted as being new.")
+                                    # Render box on frame
+                                    # if camera.name == "Top":
+                                    # self.draw_rect_on_frame(output_frame, abs_x_center, abs_y_center, box_width, box_height, scale)
+                                    
+                                    bottle = None
                                     bottle_id_color = (0, 0, 255)
-                                if track_id in camera.bottles:
-                                    bottle = camera.bottles[track_id]
-                                    # bottle_id_color = (255, 255, 0) if bottle.was_corrected else (0, 255, 0)
-                                    # Groen voor OK bottles, Rood voor NOK bottles
-                                    if bottle.was_corrected:
-                                        bottle_id_color = (255, 255, 0)  # Geel voor gecorrigeerde bottles
-                                    elif bottle.is_ok:
-                                        bottle_id_color = (0, 255, 0)  # Groen voor OK
-                                    else:
-                                        bottle_id_color = (0, 0, 255)  # Rood voor NOK
-                                
-                                self.draw_rect_on_frame(output_frame, x_center, y_center, box_width, box_height, scale, bottle, bottle_id_color)
-                                
-                if VERBOSE_DBUG:
-                    cv2.putText(output_frame, f'Inference queue: {self.frame_queue.qsize()} batch queue: {self.batch_queue.qsize()}', (10, output_frame_height - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-           
-                cv2.imshow("Inference Result", output_frame)
+                                    if track_id in camera.temporary_bottles:
+                                        bottle = camera.temporary_bottles[track_id]
+                                        bottle_id_color = (0, 0, 255)
+                                    if track_id in camera.bottles:
+                                        bottle = camera.bottles[track_id]
+                                        # bottle_id_color = (255, 255, 0) if bottle.was_corrected else (0, 255, 0)
+                                        # Groen voor OK bottles, Rood voor NOK bottles
+                                        if bottle.was_corrected:
+                                            bottle_id_color = (255, 255, 0)  # Geel voor gecorrigeerde bottles
+                                        elif bottle.is_ok:
+                                            bottle_id_color = (0, 255, 0)  # Groen voor OK
+                                        else:
+                                            bottle_id_color = (0, 0, 255)  # Rood voor NOK
+                                    
+                                    self.draw_rect_on_frame(output_frame, x_center, y_center, box_width, box_height, scale, bottle, bottle_id_color)
+                                    
+                    if VERBOSE_DBUG:
+                        cv2.putText(output_frame, f'Inference queue: {self.frame_queue.qsize()} batch queue: {self.batch_queue.qsize()}', (10, output_frame_height - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
             
-            self.solve_disagreements()
-            
-            self.wait_if_needed()
-            
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                self.release()
-                break
-            elif key == ord('p') or key == ord(' '):
-                cv2.waitKey(-1)
+                    cv2.imshow("Inference Result", output_frame)
                 
-            self.window_was_open = True
-            
-        log("Finished processing.")
-        self.release()
-       
-       
-    def run_without_precombined(self):
-        # frames: dict[Camera, cv2.typing.MatLike] = []
-        for camera in self.cameras:
-            camera.start_preprocessing()
-        while True:
-            frames = []
-            
-            for camera_index, camera in enumerate(self.cameras):
-                frame, results = camera.get_frame()
+                self.solve_disagreements()
                 
-                if camera.processed_frame_count >= MAX_FRAMES or not camera.is_open():
-                    log(f"Done. {camera.processed_frame_count} frames processed.")
+                self.wait_if_needed()
+                
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q'):
+                    self.release()
                     break
+                elif key == ord('p') or key == ord(' '):
+                    cv2.waitKey(-1)
                     
-                frames.append(camera.render_frame())
-                                
-            # Check if all cameras agree with each other on the last bottle index
-            last_bottle_indices = set()
-            for camera in self.cameras:
-                if camera.last_registered_bottle is not None:
-                    last_bottle_indices.add(camera.last_registered_bottle.index)
-            
-            if len(last_bottle_indices) > 1:
-                # log("Warning: Cameras disagree on last registered bottle indices:", last_bottle_indices, "Camera number:", camera_index)
-                self.camera_disagreement_counts[camera_index] = self.camera_disagreement_counts.get(camera_index, 0) + 1
-                
-                if self.camera_disagreement_counts[camera_index] >= BOTTLE_DISAGREEMENT_TOLERANCE:
-                    self.correct_index_disagreements()
-                
-            
-            # If the last frame was displayed recently, wait
-            now = time()
-            time_passed = now - self.last_frame_time
-            min_time_passed = 1 / DISPLAY_FRAMERATE
-            if time_passed < min_time_passed:
-                sleep_time = min_time_passed - time_passed
-                if sleep_time > 0:
-                    queued_frames = camera.get_ready_frames_count()
-                    blabber(f"I'm being rate limited. {queued_frames} frames are already prepared. Sleeping for {sleep_time} seconds...")
-                    sleep(sleep_time)
-            
-            self.last_frame_time = time()
-            
-            if self.window_was_open and self.is_window_closed(PREVIEW_WINDOW_NAME):
-                log("Window closed, exiting.")
-                break
-            
-            # Display the frame
-            try:
-                camera_count = len(self.cameras)
-                frame_rows = self.split_array(frames, 2)
-                row_frames = []
-                for row in frame_rows:
-                    while len(row) < 2:
-                        row.append(np.zeros_like(row[0]))
-                    row_frame = np.hstack(row)
-                    row_frames.append(row_frame)
-            
-                combined_frame = np.vstack(row_frames)
-                cv2.imshow(PREVIEW_WINDOW_NAME, combined_frame)
-            except:
-                log("Error combining frames for preview:")
-                # combined_frame = np.hstack(frames)
-            
-                
-            
+                self.window_was_open = True
 
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                break
-            elif key == ord('p'):
-                cv2.waitKey(-1)
+        else:
+            for camera in self.cameras:
+                    camera.start_preprocessing()
+            while True:
+                frames = []
                 
-            self.window_was_open = True
-            
+                for camera_index, camera in enumerate(self.cameras):
+                    frame, results = camera.get_frame()
+                    
+                    if camera.processed_frame_count >= MAX_FRAMES or not camera.is_open():
+                        log(f"Done. {camera.processed_frame_count} frames processed.")
+                        break
+                        
+                    frames.append(camera.render_frame())
+                                    
+                # Check if all cameras agree with each other on the last bottle index
+                last_bottle_indices = set()
+                for camera in self.cameras:
+                    if camera.last_registered_bottle is not None:
+                        last_bottle_indices.add(camera.last_registered_bottle.index)
+                
+                if len(last_bottle_indices) > 1:
+                    # log("Warning: Cameras disagree on last registered bottle indices:", last_bottle_indices, "Camera number:", camera_index)
+                    self.camera_disagreement_counts[camera_index] = self.camera_disagreement_counts.get(camera_index, 0) + 1
+                    
+                    if self.camera_disagreement_counts[camera_index] >= BOTTLE_DISAGREEMENT_TOLERANCE:
+                        self.correct_index_disagreements()
+                    
+                
+                # If the last frame was displayed recently, wait
+                now = time()
+                time_passed = now - self.last_frame_time
+                min_time_passed = 1 / DISPLAY_FRAMERATE
+                if time_passed < min_time_passed:
+                    sleep_time = min_time_passed - time_passed
+                    if sleep_time > 0:
+                        queued_frames = camera.get_ready_frames_count()
+                        blabber(f"I'm being rate limited. {queued_frames} frames are already prepared. Sleeping for {sleep_time} seconds...")
+                        sleep(sleep_time)
+                
+                self.last_frame_time = time()
+                
+                if self.window_was_open and self.is_window_closed(PREVIEW_WINDOW_NAME):
+                    log("Window closed, exiting.")
+                    break
+                
+                # Display the frame
+                try:
+                    camera_count = len(self.cameras)
+                    frame_rows = self.split_array(frames, 2)
+                    row_frames = []
+                    for row in frame_rows:
+                        while len(row) < 2:
+                            row.append(np.zeros_like(row[0]))
+                        row_frame = np.hstack(row)
+                        row_frames.append(row_frame)
+                
+                    combined_frame = np.vstack(row_frames)
+                    cv2.imshow(PREVIEW_WINDOW_NAME, combined_frame)
+                except:
+                    log("Error combining frames for preview:")
+                    # combined_frame = np.hstack(frames)
+                
+                    
+                
+
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q'):
+                    break
+                elif key == ord('p'):
+                    cv2.waitKey(-1)
+                    
+                self.window_was_open = True
+                
         log("Finished processing.")
         self.release()
+    
+    # def run_without_precombined(self):
+        # frames: dict[Camera, cv2.typing.MatLike] = []
+        
         
     def solve_disagreements(self):
         last_bottle_indices = set()

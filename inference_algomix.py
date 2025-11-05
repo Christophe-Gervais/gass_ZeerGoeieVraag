@@ -40,6 +40,8 @@ SIZE_STREAK_THRESHOLD = 3 # How many times in a row the bottle has to increase i
 SIZE_INCREASE_THRESHOLD = 0 # How much the bottle has to increase in size to be considered entering the frame.
 MOVEMENT_THRESHOLD = 10 # How much the bottle has to be moved for the size change to be registered. This is to prevent problems when the belt is stopped.
 
+
+
 YOLO_CONF = 0.8
 
 # Preview options
@@ -173,6 +175,7 @@ class Bottle:
     times_seen: int
     state: BottleState
     bottle_size_dist_history: list[tuple[float, float]]
+    last_size_change: float
     plotter: Plotter
     
     def __init__(self, x: float, y: float, yolo_id: int, is_ok = True):
@@ -212,13 +215,13 @@ class Bottle:
         # size_streak = 0
         last_size = 0
         size_change = 0
-        for size_dist in self.bottle_size_dist_history:
-            size = size_dist[0]
-            dist = size_dist[1]
-            if size <= last_size + SIZE_INCREASE_THRESHOLD:
-                log("This one didn't grow enough.")
-                break
-            last_size = size
+        # for size_dist in self.bottle_size_dist_history:
+        #     size = size_dist[0]
+        #     dist = size_dist[1]
+        #     if size <= last_size + SIZE_INCREASE_THRESHOLD:
+        #         log("This one didn't grow enough.")
+        #         break
+        #     last_size = size
             # size_streak += 1
         # print("Size streak:", size_streak, " YOLO ID: ", self.yolo_id)
         # if size_streak > SIZE_STREAK_THRESHOLD / get_frame_skip_divider():
@@ -230,16 +233,27 @@ class Bottle:
             # self.promote_bottle(track_id)
             # # bottle.bottle_size_history.clear()
             # return True
-        return BottleState.ENTERING
+        blabber("Last size change is self.last_size_change", self.last_size_change)
+            
+        if self.last_size_change == 0.0:
+            return BottleState.UNKNOWN
+        if self.last_size_change > 2.5:
+            return BottleState.ENTERING
+        elif self.last_size_change < -2.5:
+            return BottleState.EXITING
+        else:
+            return BottleState.IN_FRAME
     
     def register_state_change(self, size) -> BottleState:
         distance = math.dist((self.x, self.y), (self.prev_x, self.prev_y))
         dsize = self.calculate_size_change_from_x_number_of_frames(5)
+        self.last_size_change = dsize
         self.bottle_size_dist_history.append((size, distance, dsize))
         
         
         
         self.state = self.calculate_state_change()
+        log("Made me think it should be", self.state)
         
         self.plotter.plot(self.bottle_size_dist_history)
         
@@ -536,21 +550,12 @@ class Camera(FrameGenerator):
         del self.temporary_bottles[track_id]
         self.last_registered_bottle = bottle
         
-    def register_bottle(self, x, y, width, height, track_id, is_ok = True):
+    def register_bottle(self, x, y, width, height, track_id, is_ok = True) -> bool:
         if track_id in self.bottles:
-            # self.bottles[track_id].x = x
-            # self.bottles[track_id].y = y
-            # self.bottles[track_id].is_ok = is_ok
-            # self.bottles[track_id].times_seen += 1
             self.bottles[track_id].update(x, y, is_ok)
             return False 
         
         if track_id in self.temporary_bottles:
-            # self.temporary_bottles[track_id].x = x
-            # self.temporary_bottles[track_id].y = y
-            # self.temporary_bottles[track_id].times_seen += 1
-            # self.track_ids_seen[track_id] += 1
-            
             bottle = self.temporary_bottles[track_id]
             bottle.update(x, y, is_ok)
             if COUNT_BY_BOTTLE_SIZE:
@@ -859,7 +864,7 @@ class BottleTracker(FrameGenerator):
         y2 = max(0, min(y2, output_frame_height - 1))
         
         thickness = 2
-        color = (255, 0, 0)
+        color = (255, 0, 0) if bottle.state is BottleState.IN_FRAME else (0, 255, 0)
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
         
         if bottle is not None:

@@ -128,11 +128,8 @@ class Camera:
     sequential_correction_count: int = 0
     
     
-    # frames: list[cv2.typing.MatLike]
-    # result_queue: list
     frame_index: int
     stack_rect: tuple[int, int, int, int]  # x, y, w, h
-    # last_results = None
     
     def skip_frames(self, frames_to_skip: int, collect_skipped: bool = False):
         frames = []
@@ -208,10 +205,6 @@ class Camera:
         self.inference_width = int(IMAGE_SIZE * self.aspect_ratio)
         self.inference_height = IMAGE_SIZE
         
-        # self.last_bottle_index = 0
-        # self.bottle_size_history: list[float] = list()
-        
-        # As
     def get_ready_frames_count(self):
         return self.frame_queue.qsize()
     

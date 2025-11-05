@@ -22,7 +22,7 @@ MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 # Algorithm options
 IMAGE_SIZE = 320
 BATCH_SIZE = 7
-FRAMES_TO_SKIP = 1 # Skip this many frames between each processing step, -1 to disable.
+FRAMES_TO_SKIP = 5 # Skip this many frames between each processing step, -1 to disable.
 TEMPORAL_CUTOFF_THRESHOLD = 40  # Amount of frames a bottle needs to be seen to be considered tracked.
 PRECOMBINE = False
 
@@ -35,7 +35,7 @@ EXTRA_CORRECTION = False # Allow correcting half the feed if one half disagrees 
 LOWER_DISPUTE_CORRECTION = True
 
 # Counting algorithm options
-COUNT_BY_BOTTLE_SIZE = True # Use the bottle size to count bottles.
+COUNT_BY_BOTTLE_SIZE = False # Use the bottle size to count bottles.
 SIZE_STREAK_THRESHOLD = 3 # How many times in a row the bottle has to increase in size for it to be considered a new bottle.
 SIZE_INCREASE_THRESHOLD = 0 # How much the bottle has to increase in size to be considered entering the frame.
 MOVEMENT_THRESHOLD = 10 # How much the bottle has to be moved for the size change to be registered. This is to prevent problems when the belt is stopped.
@@ -183,10 +183,10 @@ class Bottle:
     y: float
     prev_x: float
     prev_y: float
-    in_view: bool = True
+    width: float
+    height: float
     yolo_id: int
     was_corrected: bool = False
-    width: float
     is_ok: bool
     times_seen: int
     state: BottleState
@@ -194,9 +194,9 @@ class Bottle:
     last_size_change: float
     plotter: Plotter
     
-    def __init__(self, x: float, y: float, yolo_id: int, is_ok = True):
+    def __init__(self, x: float, y: float, width: float, height: float, yolo_id: int, is_ok = True):
         self.times_seen = 0
-        self.update(x, y, is_ok)
+        self.update(x, y, width, height, is_ok)
         self.prev_x = 0
         self.prev_y = 0
         # self.x = x
@@ -206,12 +206,16 @@ class Bottle:
         # self.is_ok = is_ok
         self.state = BottleState.UNKNOWN
         
+        # self.width = width
+        # self.height = height
     
         self.plotter = Plotter(self.yolo_id) if VERBOSE_PLOT else None
     
-    def update(self, x: float, y: float, is_ok: bool | None):
+    def update(self, x: float, y: float, width, height, is_ok: bool | None):
         self.x = x
         self.y = y
+        self.width = width
+        self.height = height
         if is_ok is not None:
             self.is_ok = is_ok
         self.times_seen += 1
@@ -299,15 +303,15 @@ class FrameGenerator:
         except queue.Empty:
             return None
     
-    def draw_rect_on_frame(self, frame, x_center, y_center, box_width, box_height, scale, bottle: Bottle = None):
+    def draw_rect_on_frame(self, frame, x_center, y_center, scale, bottle: Bottle = None):
         
         output_frame_width = frame.shape[1]
         output_frame_height = frame.shape[0]
         
         scaled_x_center = int(x_center * scale)
         scaled_y_center = int(y_center * scale)
-        scaled_box_width = int(box_width * scale)
-        scaled_box_height = int(box_height * scale)
+        scaled_box_width = int(bottle.width * scale)
+        scaled_box_height = int(bottle.height * scale)
         
         x1 = int(scaled_x_center - scaled_box_width / 2)
         y1 = int(scaled_y_center - scaled_box_height / 2)
@@ -346,7 +350,7 @@ class FrameGenerator:
             label = f'Bottle {bottle.index} ({status_text})'
             # Changed font scale from 1 to 0.4 and thickness from 2 to 1 for smaller text
             cv2.putText(frame, label, (int(x1 + 5), int(y1 + 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, bottle_id_color, 2)
-            cv2.putText(frame, 'YOLO ID: ' + str(bottle.yolo_id), (int(x1 + 10), int(y1 + 35)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            cv2.putText(frame, 'YOLO ID: ' + str(bottle.yolo_id), (int(x1 + 5), int(y1 + 40)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         
         return x1, y1, y2, y2
 
@@ -533,7 +537,7 @@ class Camera(FrameGenerator):
                         if track_id in self.bottles:
                             bottle = self.bottles[track_id]
                         
-                        self.draw_rect_on_frame(frame, x_center, y_center, box_width, box_height, x_scale, bottle)
+                        self.draw_rect_on_frame(frame, x_center, y_center, x_scale, bottle)
                 
         
         if VERBOSE_DBUG:
@@ -594,7 +598,7 @@ class Camera(FrameGenerator):
         self.last_bottle_index += 1
         bottle.index = self.last_bottle_index
         self.bottles[track_id] = bottle
-        blabber("Bottle assigned index:", bottle.index, "Track ID:", track_id, "Camera:", self.name)
+        log("Bottle assigned index:", bottle.index, "Track ID:", track_id, "Camera:", self.name)
         del self.temporary_bottles[track_id]
         self.last_registered_bottle = bottle
         
@@ -605,7 +609,7 @@ class Camera(FrameGenerator):
         
         if track_id in self.temporary_bottles:
             bottle = self.temporary_bottles[track_id]
-            bottle.update(x, y, is_ok)
+            bottle.update(x, y, width, height, is_ok)
             if COUNT_BY_BOTTLE_SIZE:
                 # bottle.bottle_size_history.append(width)
                 # size_streak = 0
@@ -629,7 +633,7 @@ class Camera(FrameGenerator):
                     return True
 
             return False
-        bottle = Bottle(x, y, track_id, is_ok)
+        bottle = Bottle(x, y, width, height, track_id, is_ok)
         self.temporary_bottles[track_id] = bottle
         self.track_ids_seen[track_id] = 1
         
@@ -723,7 +727,7 @@ class BottleTracker(FrameGenerator):
                 
             if collect_skipped:
                 for _ in range(frames_to_skip):
-                    frame = self.get_combined_frame_parallel()
+                    frame = self.get_combined_frame(True)
                     if frame is None:
                         return frames
                     output_frame_width = int(SKIPPED_IMAGE_SIZE * self.aspect_ratio)
@@ -981,22 +985,22 @@ class BottleTracker(FrameGenerator):
                                     # self.draw_rect_on_frame(output_frame, abs_x_center, abs_y_center, box_width, box_height, scale)
                                     
                                     bottle = None
-                                    bottle_id_color = (0, 0, 255)
+                                    # bottle_id_color = (0, 0, 255)
                                     if track_id in camera.temporary_bottles:
                                         bottle = camera.temporary_bottles[track_id]
-                                        bottle_id_color = (0, 255, 255)
+                                        # bottle_id_color = (0, 255, 255)
                                     if track_id in camera.bottles:
                                         bottle = camera.bottles[track_id]
                                         # bottle_id_color = (255, 255, 0) if bottle.was_corrected else (0, 255, 0)
                                         # Groen voor OK bottles, Rood voor NOK bottles
-                                        if bottle.was_corrected:
-                                            bottle_id_color = (255, 255, 0)  # Geel voor gecorrigeerde bottles
-                                        elif bottle.is_ok:
-                                            bottle_id_color = (0, 255, 0)  # Groen voor OK
-                                        else:
-                                            bottle_id_color = (0, 0, 255)  # Rood voor NOK
+                                        # if bottle.was_corrected:
+                                        #     bottle_id_color = (255, 255, 0)  # Geel voor gecorrigeerde bottles
+                                        # elif bottle.is_ok:
+                                        #     bottle_id_color = (0, 255, 0)  # Groen voor OK
+                                        # else:
+                                        #     bottle_id_color = (0, 0, 255)  # Rood voor NOK
                                     
-                                    self.draw_rect_on_frame(output_frame, x_center, y_center, box_width, box_height, scale, bottle)
+                                    self.draw_rect_on_frame(output_frame, x_center, y_center, scale, bottle)
                                     
                     if VERBOSE_DBUG:
                         cv2.putText(output_frame, f'Inference queue: {self.frame_queue.qsize()} batch queue: {self.batch_queue.qsize()}', (10, output_frame_height - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)

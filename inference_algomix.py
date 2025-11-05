@@ -25,7 +25,7 @@ IMAGE_SIZE = 320
 BATCH_SIZE = 70
 FRAMES_TO_SKIP = 5 # Skip this many frames between each processing step, -1 to disable.
 TEMPORAL_CUTOFF_THRESHOLD = 3  # Amount of frames a bottle needs to be seen to be considered tracked. Not frame skip adjusted because this is for the model.
-PRECOMBINE = False
+PRECOMBINE = True
 
 
 # Correction algorithm options

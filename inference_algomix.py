@@ -39,6 +39,8 @@ COUNT_BY_BOTTLE_SIZE = True # Use the bottle size to count bottles.
 SIZE_STREAK_THRESHOLD = 3 # How many times in a row the bottle has to increase in size for it to be considered a new bottle.
 SIZE_INCREASE_THRESHOLD = 0 # How much the bottle has to increase in size to be considered entering the frame.
 MOVEMENT_THRESHOLD = 10 # How much the bottle has to be moved for the size change to be registered. This is to prevent problems when the belt is stopped.
+
+# Size change algorithm options
 SIZE_CHANGE_THRESHOLD = 3 # How much the value has to change for it to be considered a . Beyond which value is the bottle considered to be entering of exiting the frame.
 
 

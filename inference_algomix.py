@@ -20,11 +20,11 @@ EXTRA_CAMERA_DELAY = 1  # Delay in seconds
 MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 
 # Algorithm options
-IMAGE_SIZE = 160
+IMAGE_SIZE = 320
 BATCH_SIZE = 7
 FRAMES_TO_SKIP = 1 # Skip this many frames between each processing step, -1 to disable.
 TEMPORAL_CUTOFF_THRESHOLD = 40  # Amount of frames a bottle needs to be seen to be considered tracked.
-PRECOMBINE = False
+PRECOMBINE = True
 
 # Correction algorithm options
 BOTTLE_CORRECTION_START_OFFSET = 20 # Amount of frames to wait before allowing the correction algorithm to kick in.
@@ -39,7 +39,7 @@ COUNT_BY_BOTTLE_SIZE = True # Use the bottle size to count bottles.
 SIZE_STREAK_THRESHOLD = 3 # How many times in a row the bottle has to increase in size for it to be considered a new bottle.
 SIZE_INCREASE_THRESHOLD = 0 # How much the bottle has to increase in size to be considered entering the frame.
 MOVEMENT_THRESHOLD = 10 # How much the bottle has to be moved for the size change to be registered. This is to prevent problems when the belt is stopped.
-
+SIZE_CHANGE_THRESHOLD = 3 # How much the value has to change for it to be considered a . Beyond which value is the bottle considered to be entering of exiting the frame.
 
 
 YOLO_CONF = 0.8
@@ -55,7 +55,7 @@ RENDER_SKIPPED_FRAMES = False # Whether to render skipped frames in between proc
 SKIPPED_IMAGE_SIZE = 200
 MAXIMIZE_DISPLAY_SPEED = True # Speed up display when enough frames are queued
 INCREASE_SPEED_AT = 150 # If more than this many frames are queued, increase display speed
-SPEED_MULTIPLIER = 0.7 # How much to speed up when easing display speed
+SPEED_MULTIPLIER = 0.2 # How much to speed up when easing display speed (lower is faster)
 
 # Logging options
 VERBOSE_YOLO = False # Show YOLO debug info
@@ -63,6 +63,7 @@ VERBOSE_LOGS = True # Show general info
 VERBOSE_BLAB = False # Show detailed debug info
 VERBOSE_DBUG = True # Show debug info
 VERBOSE_PERF = False
+VERBOSE_PLOT = False
 
 def log(*values: object, **kwargs):
     if not VERBOSE_LOGS: return
@@ -132,16 +133,6 @@ class Plotter:
         plt.show(block=False)
     
     def plot(self, size_hist: list[tuple[float, float, float]]):
-        # frames = list(range(len(size_hist)))
-        # sizes = [s for s, d in size_hist]
-        # dists = [d for s, d in size_hist]
-        # sizes = []
-        # dists = []
-        # dsizes = []
-        # for size, dist in size_hist:
-        #     sizes.append(size)
-        #     dists.append(dist)
-        #     dsizes.append
         frames = list(range(len(size_hist)))
         sizes = [s for s, d, ds in size_hist]
         dists = [d for s, d, ds in size_hist]
@@ -160,6 +151,11 @@ class Plotter:
 
         self._fig.canvas.draw()
         self._fig.canvas.flush_events()
+    
+    def release(self):
+        if self._fig is not None:
+            plt.close(self._fig)
+            self._fig = None
 
 class Bottle:
     index: int = -1
@@ -190,7 +186,8 @@ class Bottle:
         # self.is_ok = is_ok
         self.state = BottleState.UNKNOWN
         
-        self.plotter = Plotter(self.yolo_id)
+    
+        self.plotter = Plotter(self.yolo_id) if VERBOSE_PLOT else None
     
     def update(self, x: float, y: float, is_ok: bool | None):
         self.x = x
@@ -237,9 +234,9 @@ class Bottle:
             
         if self.last_size_change == 0.0:
             return BottleState.UNKNOWN
-        if self.last_size_change > 2.5:
+        if self.last_size_change > SIZE_CHANGE_THRESHOLD:
             return BottleState.ENTERING
-        elif self.last_size_change < -2.5:
+        elif self.last_size_change < -SIZE_CHANGE_THRESHOLD:
             return BottleState.EXITING
         else:
             return BottleState.IN_FRAME
@@ -254,8 +251,12 @@ class Bottle:
         
         self.state = self.calculate_state_change()
         log("Made me think it should be", self.state)
+        if self.state is BottleState.EXITING and self.plotter is not None:
+            self.plotter.release()
+            self.plotter = None
         
-        self.plotter.plot(self.bottle_size_dist_history)
+        if self.plotter is not None:
+            self.plotter.plot(self.bottle_size_dist_history)
         
         self.prev_x = self.x
         self.prev_y = self.y
@@ -864,8 +865,15 @@ class BottleTracker(FrameGenerator):
         y2 = max(0, min(y2, output_frame_height - 1))
         
         thickness = 2
-        color = (255, 0, 0) if bottle.state is BottleState.IN_FRAME else (0, 255, 0)
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
+        bounding_color = (0, 0, 255) # Red
+        if bottle.state is BottleState.IN_FRAME:
+            bounding_color = (0, 255, 0) # Green
+        elif bottle.state is BottleState.ENTERING:
+            bounding_color = (0, 255, 255) # Yellow
+        elif bottle.state is BottleState.EXITING:
+            bounding_color = (255, 0, 255) # Purple
+        
+        cv2.rectangle(frame, (x1, y1), (x2, y2), bounding_color, thickness)
         
         if bottle is not None:
             # cv2.putText(frame, 'Bottle ' + str(bottle.index), (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, id_color, 2)

@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 import math
 import matplotlib.pyplot as plt
+import tracemalloc
 
 
 # Input options
@@ -21,10 +22,11 @@ MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 
 # Algorithm options
 IMAGE_SIZE = 320
-BATCH_SIZE = 7
+BATCH_SIZE = 70
 FRAMES_TO_SKIP = 5 # Skip this many frames between each processing step, -1 to disable.
-TEMPORAL_CUTOFF_THRESHOLD = 40  # Amount of frames a bottle needs to be seen to be considered tracked.
+TEMPORAL_CUTOFF_THRESHOLD = 3  # Amount of frames a bottle needs to be seen to be considered tracked. Not frame skip adjusted because this is for the model.
 PRECOMBINE = False
+
 
 # Correction algorithm options
 BOTTLE_CORRECTION_START_OFFSET = 20 # Amount of frames to wait before allowing the correction algorithm to kick in.
@@ -50,7 +52,7 @@ YOLO_CONF = 0.8
 PREVIEW_IMAGE_SIZE = 320
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
-DISPLAY_FRAMERATE = 2 # Display fps
+DISPLAY_FRAMERATE = 30 # Display fps
 MAX_QUEUE_SIZE = 20 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 0.1 # Amount of seconds to wait when queue is full
 RENDER_SKIPPED_FRAMES = False # Whether to render skipped frames in between processed frames
@@ -59,13 +61,14 @@ MAXIMIZE_DISPLAY_SPEED = True # Speed up display when enough frames are queued
 INCREASE_SPEED_AT = 150 # If more than this many frames are queued, increase display speed
 SPEED_MULTIPLIER = 0.2 # How much to speed up when easing display speed (lower is faster)
 
-# Logging options
+# Debugging options
 VERBOSE_YOLO = False # Show YOLO debug info
 VERBOSE_LOGS = True # Show general info
 VERBOSE_BLAB = False # Show detailed debug info
 VERBOSE_DBUG = True # Show debug info
-VERBOSE_PERF = False
-VERBOSE_PLOT = False
+VERBOSE_PERF = False # Show performance info
+VERBOSE_PLOT = False # Plot the box size algorithm data
+VERBOSE_MEMO = True # Show memory info
 
 def main():
     cameras: list[Camera] = [
@@ -98,6 +101,9 @@ def get_frame_skip_divider():
 
 class PerformanceMeter:
     def __init__(self):
+        self.reset()
+    
+    def reset(self):
         self.start_time = perf_counter()
     
     def elapsed(self):
@@ -106,6 +112,15 @@ class PerformanceMeter:
     def log_elapsed(self, message: str):
         if VERBOSE_PERF:
             print(message, f"took {self.elapsed()} seconds.")
+        
+    def has_enough_time_elapsed(self, time_to_wait):
+        enough = self.elapsed() > time_to_wait
+        if enough:
+            self.reset()
+        return enough
+        
+    def get_memory_usage(self):
+        tracemalloc.get_traced_memory()
         
 class BottleState(Enum):
     UNKNOWN = 0
@@ -377,6 +392,7 @@ class Camera(FrameGenerator):
     last_registered_bottle: Bottle = None
     sequential_correction_count: int = 0
     
+    is_promoted: bool
     
     frame_index: int
     stack_rect: tuple[int, int, int, int]  # x, y, w, h
@@ -604,7 +620,7 @@ class Camera(FrameGenerator):
         
     def register_bottle(self, x, y, width, height, track_id, is_ok = True) -> bool:
         if track_id in self.bottles:
-            self.bottles[track_id].update(x, y, is_ok)
+            self.bottles[track_id].update(x, y, width, height, is_ok)
             return False 
         
         if track_id in self.temporary_bottles:
@@ -628,7 +644,8 @@ class Camera(FrameGenerator):
                 if state is BottleState.ENTERING:
                     return True
             else:
-                if self.track_ids_seen[track_id] >= TEMPORAL_CUTOFF_THRESHOLD / get_frame_skip_divider():
+                self.track_ids_seen[track_id] += 1
+                if self.track_ids_seen[track_id] >= TEMPORAL_CUTOFF_THRESHOLD:
                     self.promote_bottle(track_id)
                     return True
 
@@ -641,7 +658,7 @@ class Camera(FrameGenerator):
 
     def register_correction(self, corrected_index):
         self.sequential_correction_count += 1
-        if self.sequential_correction_count > TEMPORAL_CUTOFF_THRESHOLD / get_frame_skip_divider():
+        if self.sequential_correction_count > SEQUENTIAL_CORRECTION_THRESHOLD:
             self.last_bottle_index = corrected_index
             log(f"I, Camera {self.name}, was wrong {self.sequential_correction_count} in a row. I really thought I was right but I guess I wasn't. As punishment I will correct myself, remember that the correct index from now on is {corrected_index} and I will try my best to never do this again. I'm so sorry.")
 
@@ -662,6 +679,10 @@ class BottleTracker(FrameGenerator):
     last_frame_time = time()
     
     algorithm: TrackingAlgorithm
+    
+    meter: PerformanceMeter
+    
+    memory_usage: int
     
     def __init__(self, cameras: list[Camera], algorithm: TrackingAlgorithm = TrackingAlgorithm.SIZE):
         super().__init__()
@@ -685,9 +706,14 @@ class BottleTracker(FrameGenerator):
         self.inference_thread = None
         self.combined_frame = np.zeros((self.inference_height, self.inference_width, 3), dtype=np.uint8)
         # self.camera_stack_coordinates = []
+        self.meter = PerformanceMeter()
     
     def ready_frames_count(self):
         return self.frame_queue.qsize()
+
+    def update_mem_usage_if_allowed(self):
+        if self.meter.has_enough_time_elapsed(5):
+            self.memory_usage = self.meter.get_memory_usage()
     
     def _inference_processing_worker(self):
         blabber("Starting inference preprocessing.")
@@ -927,7 +953,10 @@ class BottleTracker(FrameGenerator):
         except queue.Empty:
             return None
     
-    
+    def draw_memory_usage(self, frame):
+        self.update_mem_usage_if_allowed()
+        cv2.putText(frame, f'Inference queue: {self.frame_queue.qsize()} batch queue: {self.batch_queue.qsize()}', (10, 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
     
     def run(self, precombined = True):
         if precombined:
@@ -980,31 +1009,21 @@ class BottleTracker(FrameGenerator):
                                     
                                     if camera.register_bottle(relative_x, relative_y, box_width, box_height, track_id, is_ok):
                                         blabber("Bottle got accepted as being new.")
-                                    # Render box on frame
-                                    # if camera.name == "Top":
-                                    # self.draw_rect_on_frame(output_frame, abs_x_center, abs_y_center, box_width, box_height, scale)
-                                    
+                                        
                                     bottle = None
-                                    # bottle_id_color = (0, 0, 255)
                                     if track_id in camera.temporary_bottles:
                                         bottle = camera.temporary_bottles[track_id]
-                                        # bottle_id_color = (0, 255, 255)
                                     if track_id in camera.bottles:
                                         bottle = camera.bottles[track_id]
-                                        # bottle_id_color = (255, 255, 0) if bottle.was_corrected else (0, 255, 0)
-                                        # Groen voor OK bottles, Rood voor NOK bottles
-                                        # if bottle.was_corrected:
-                                        #     bottle_id_color = (255, 255, 0)  # Geel voor gecorrigeerde bottles
-                                        # elif bottle.is_ok:
-                                        #     bottle_id_color = (0, 255, 0)  # Groen voor OK
-                                        # else:
-                                        #     bottle_id_color = (0, 0, 255)  # Rood voor NOK
                                     
                                     self.draw_rect_on_frame(output_frame, x_center, y_center, scale, bottle)
                                     
                     if VERBOSE_DBUG:
                         cv2.putText(output_frame, f'Inference queue: {self.frame_queue.qsize()} batch queue: {self.batch_queue.qsize()}', (10, output_frame_height - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            
+
+                    if VERBOSE_MEMO:
+                        self.draw_memory_usage(output_frame)
+                    
                     cv2.imshow("Inference Result", output_frame)
                 
                 self.solve_disagreements()

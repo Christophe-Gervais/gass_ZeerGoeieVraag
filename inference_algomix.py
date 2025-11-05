@@ -41,8 +41,8 @@ SIZE_INCREASE_THRESHOLD = 0 # How much the bottle has to increase in size to be 
 MOVEMENT_THRESHOLD = 10 # How much the bottle has to be moved for the size change to be registered. This is to prevent problems when the belt is stopped.
 
 # Size change algorithm options
-SIZE_CHANGE_THRESHOLD = 3 # How much the value has to change for it to be considered a . Beyond which value is the bottle considered to be entering of exiting the frame.
-
+SIZE_CHANGE_THRESHOLD = 2.5 # How much the value has to change for it to be considered a . Beyond which value is the bottle considered to be entering of exiting the frame.
+FRAME_CHANGE_COUNT = 3 # How many frames to compare the size change on
 
 YOLO_CONF = 0.8
 
@@ -50,7 +50,7 @@ YOLO_CONF = 0.8
 PREVIEW_IMAGE_SIZE = 320
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
-DISPLAY_FRAMERATE = 30
+DISPLAY_FRAMERATE = 60
 MAX_QUEUE_SIZE = 500 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 0.1 # Amount of seconds to wait when queue is full
 RENDER_SKIPPED_FRAMES = False # Whether to render skipped frames in between processed frames
@@ -66,6 +66,23 @@ VERBOSE_BLAB = False # Show detailed debug info
 VERBOSE_DBUG = True # Show debug info
 VERBOSE_PERF = False
 VERBOSE_PLOT = False
+
+def main():
+    cameras: list[Camera] = [
+        # Camera('Top', 'videos/14_55/14_55_top_cropped.mp4', start_skip=3),
+        Camera('Front', 'videos/14_55/14_55_front_cropped.mp4', start_skip=0),
+        
+        # Camera('Back Left', 'videos/14_55/14_55_back_left_cropped.mp4', start_skip=2),
+        # Camera('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_skip=1, start_index=-1),
+    ]
+    
+    bottle_tracker = BottleTracker(cameras)
+    
+    log("Created cameras. Initiating tracking...")
+    if PRECOMBINE:
+        bottle_tracker.run()
+    else:
+        bottle_tracker.run_without_precombined()
 
 def log(*values: object, **kwargs):
     if not VERBOSE_LOGS: return
@@ -245,7 +262,7 @@ class Bottle:
     
     def register_state_change(self, size) -> BottleState:
         distance = math.dist((self.x, self.y), (self.prev_x, self.prev_y))
-        dsize = self.calculate_size_change_from_x_number_of_frames(5)
+        dsize = self.calculate_size_change_from_x_number_of_frames(FRAME_CHANGE_COUNT)
         self.last_size_change = dsize
         self.bottle_size_dist_history.append((size, distance, dsize))
         
@@ -596,6 +613,10 @@ class Camera(FrameGenerator):
             self.last_bottle_index = corrected_index
             log(f"I, Camera {self.name}, was wrong {self.sequential_correction_count} in a row. I really thought I was right but I guess I wasn't. As punishment I will correct myself, remember that the correct index from now on is {corrected_index} and I will try my best to never do this again. I'm so sorry.")
 
+class TrackingAlgorithm(Enum):
+    TEMPORAL = 0
+    SIZE = 1
+    SIZE_CHANGE = 2
 
 class BottleTracker(FrameGenerator):
     cameras: list[Camera]
@@ -608,7 +629,9 @@ class BottleTracker(FrameGenerator):
     
     last_frame_time = time()
     
-    def __init__(self, cameras: list[Camera]):
+    algorithm: TrackingAlgorithm
+    
+    def __init__(self, cameras: list[Camera], algorithm: TrackingAlgorithm = TrackingAlgorithm.SIZE):
         super().__init__()
         self.cameras = cameras
         self.track_ids = []
@@ -622,7 +645,7 @@ class BottleTracker(FrameGenerator):
         self.inference_width = int(IMAGE_SIZE * self.aspect_ratio)
         self.inference_height = IMAGE_SIZE
         
-        
+        self.algorithm = algorithm
         
         self.calculate_camera_stack_rects()
         
@@ -733,7 +756,8 @@ class BottleTracker(FrameGenerator):
         resultses = self.model.track(inference_frames, conf=YOLO_CONF, persist=True, device=0, verbose=VERBOSE_YOLO)
         elapsed_time = meter.elapsed()
         ips = BATCH_SIZE / elapsed_time
-        log(f"Finished inferencing. Took {meter.elapsed()} seconds for {BATCH_SIZE} images ({ips} images/s).")
+        meter.log_elapsed(f"Finished inferencing on {BATCH_SIZE} images ({ips} images/s).")
+        # log(f"Finished inferencing. Took {meter.elapsed()} seconds for {BATCH_SIZE} images ({ips} images/s).")
         # self.frame_count += num_frames
         for i, results in enumerate(resultses):
             if RENDER_SKIPPED_FRAMES and self.last_results is not None:
@@ -1150,24 +1174,6 @@ class BottleTracker(FrameGenerator):
         self.stop_preprocessing()
         for camera in self.cameras: camera.release()
         cv2.destroyAllWindows()
-
-
-def main():
-    cameras: list[Camera] = [
-        # Camera('Top', 'videos/14_55/14_55_top_cropped.mp4', start_skip=3),
-        Camera('Front', 'videos/14_55/14_55_front_cropped.mp4', start_skip=0),
-        
-        # Camera('Back Left', 'videos/14_55/14_55_back_left_cropped.mp4', start_skip=2),
-        # Camera('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_skip=1, start_index=-1),
-    ]
-    
-    bottle_tracker = BottleTracker(cameras)
-    
-    log("Created cameras. Initiating tracking...")
-    if PRECOMBINE:
-        bottle_tracker.run()
-    else:
-        bottle_tracker.run_without_precombined()
 
 if __name__ == '__main__':
     main()

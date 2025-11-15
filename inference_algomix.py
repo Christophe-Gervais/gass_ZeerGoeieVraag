@@ -26,7 +26,7 @@ BATCH_SIZE = 70
 FRAMES_TO_SKIP = 5 # Skip this many frames between each processing step, -1 to disable.
 TEMPORAL_CUTOFF_THRESHOLD = 3  # Amount of frames a bottle needs to be seen to be considered tracked. Not frame skip adjusted because this is for the model.
 PRECOMBINE = True
-
+YOLO_CONF = 0.8
 
 # Correction algorithm options
 BOTTLE_CORRECTION_START_OFFSET = 20 # Amount of frames to wait before allowing the correction algorithm to kick in.
@@ -46,7 +46,14 @@ MOVEMENT_THRESHOLD = 10 # How much the bottle has to be moved for the size chang
 SIZE_CHANGE_THRESHOLD = 2.5 # How much the value has to change for it to be considered a . Beyond which value is the bottle considered to be entering of exiting the frame.
 FRAME_CHANGE_COUNT = 3 # How many frames to compare the size change on
 
-YOLO_CONF = 0.8
+# OCR options
+USE_OCR = True
+OCR_CONFIDENCE_THRESHOLD = 0.5
+OCR_READER = None
+OCR_RESULTS_CSV = "bottle_ocr_results.csv"
+OCR_FRAME_INTERVAL = 2  # Process OCR every N frames for each bottle
+OCR_MAX_ATTEMPTS_PER_BOTTLE = 50  # Maximum number of OCR attempts per bottle (to prevent infinite processing)
+
 
 # Preview options
 PREVIEW_IMAGE_SIZE = 320
@@ -71,9 +78,14 @@ VERBOSE_PLOT = False # Plot the box size algorithm data
 VERBOSE_MEMO = True # Show memory info
 
 def main():
+    # Initialise the OCR reader 
+    global OCR_READER
+    OCR_READER = initialize_ocr()
+    
+    # Create cameras
     cameras: list[Camera] = [
         # Camera('Top', 'videos/14_55/14_55_top_cropped.mp4', start_skip=3),
-        Camera('Front', 'videos/14_55/14_55_front_cropped.mp4', start_skip=0),
+        Camera('Front', 'videos/14_55/14_55_front_cropped.mp4', start_delay=0),
         
         # Camera('Back Left', 'videos/14_55/14_55_back_left_cropped.mp4', start_skip=2),
         # Camera('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_skip=1, start_index=-1),
@@ -98,6 +110,86 @@ def blabber(*values: object, **kwargs):
 
 def get_frame_skip_divider():
     return FRAMES_TO_SKIP if FRAMES_TO_SKIP > 0 else 1
+
+def initialize_ocr():
+    """Initialize the OCR reader"""
+    if not USE_OCR:
+        return None
+    try:
+        log("Initializing EasyOCR...")
+        # Initialize EasyOCR reader
+        reader = easyocr.Reader(['en'])  # English language
+        log("EasyOCR initialized successfully")
+        return reader
+    except Exception as e:
+        log(f"Error initializing OCR: {e}")
+        return None
+
+def save_ocr_to_csv(bottle_id, camera_name, frame_number, ocr_text, confidence, timestamp):
+    """Save OCR results to CSV file"""
+    csv_file = OCR_RESULTS_CSV
+    
+    # Create dataframe with new entry
+    new_entry = {
+        'bottle_id': bottle_id,
+        'camera_name': camera_name,
+        'frame_number': frame_number,
+        'ocr_text': ocr_text,
+        'confidence': confidence,
+        'timestamp': timestamp,
+        'processing_time': time()
+    }
+    
+    # Check if file exists to determine if we need to write header
+    file_exists = os.path.isfile(csv_file)
+    
+    try:
+        with open(csv_file, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=new_entry.keys())
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(new_entry)
+    except Exception as e:
+        log(f"Error writing to CSV: {e}")
+
+def extract_text_from_roi(reader, frame, x1, y1, x2, y2):
+    """Extract text from a region of interest"""
+    if reader is None:
+        return "", 0.0
+    
+    try:
+        # Extract ROI from frame
+        roi = frame[y1:y2, x1:x2]
+        
+        if roi.size == 0:
+            return "", 0.0
+        
+        # Perform OCR on the ROI
+        results = reader.readtext(roi)
+        
+        if not results:
+            return "", 0.0
+        
+        # Combine all detected text with confidence scores
+        combined_text = ""
+        total_confidence = 0.0
+        valid_results = 0
+        
+        for (bbox, text, confidence) in results:
+            if confidence >= OCR_CONFIDENCE_THRESHOLD:
+                combined_text += text + " "
+                total_confidence += confidence
+                valid_results += 1
+        
+        if valid_results > 0:
+            avg_confidence = total_confidence / valid_results
+            return combined_text.strip(), avg_confidence
+        else:
+            return "", 0.0
+            
+    except Exception as e:
+        log(f"OCR extraction error: {e}")
+        return "", 0.0
 
 class PerformanceMeter:
     def __init__(self):
@@ -209,6 +301,13 @@ class Bottle:
     last_size_change: float
     plotter: Plotter
     
+    #OCR related
+    ocr_texts: list = None  # Store multiple OCR results
+    best_ocr_text: str = ""
+    best_ocr_confidence: float = 0.0
+    ocr_attempts: int = 0
+    last_ocr_frame: int = -1
+    
     def __init__(self, x: float, y: float, width: float, height: float, yolo_id: int, is_ok = True):
         self.times_seen = 0
         self.update(x, y, width, height, is_ok)
@@ -225,6 +324,37 @@ class Bottle:
         # self.height = height
     
         self.plotter = Plotter(self.yolo_id) if VERBOSE_PLOT else None
+        
+        self.ocr_texts = []  # Initialize as empty list
+    
+    def add_ocr_result(self, text, confidence, frame_number):
+        """Add OCR result and track the best one"""
+        self.ocr_attempts += 1
+        self.last_ocr_frame = frame_number
+        
+        # Store all OCR results
+        self.ocr_texts.append({
+            'text': text,
+            'confidence': confidence,
+            'frame_number': frame_number,
+            'timestamp': time()
+        })
+        
+        # Update best result if this is better
+        if confidence > self.best_ocr_confidence:
+            self.best_ocr_text = text
+            self.best_ocr_confidence = confidence
+            
+    def should_process_ocr(self, current_frame):
+        """Determine if we should process OCR for this bottle in the current frame"""
+        if self.ocr_attempts >= OCR_MAX_ATTEMPTS_PER_BOTTLE:
+            return False
+        
+        # Process OCR at regular intervals
+        if self.last_ocr_frame == -1 or (current_frame - self.last_ocr_frame) >= OCR_FRAME_INTERVAL:
+            return True
+        
+        return False
     
     def update(self, x: float, y: float, width, height, is_ok: bool | None):
         self.x = x
@@ -307,16 +437,54 @@ class Batch:
         self.is_precombined = is_precombined
 
 class FrameGenerator:
+    ocr_reader: easyocr.Reader
+    
     def __init__(self):
         self.results_queue = queue.Queue()
         self.frame_queue: queue.Queue[cv2.typing.MatLike] = queue.Queue()
         self.model = YOLO(MODEL_PATH)
+        
         pass
     def get_frame(self):
         try:
             return self.frame_queue.get(), self.results_queue.get()
         except queue.Empty:
             return None
+        
+    def perform_ocr_on_bottle(self, frame, bottle, x1, y1, x2, y2):
+        """Perform OCR on a bottle region and update bottle object"""
+        if not USE_OCR or self.ocr_reader is None:
+            return
+        
+        # Check if we should process OCR for this bottle in this frame
+        if not bottle.should_process_ocr(self.processed_frame_count):
+            return
+        
+        # Expand ROI slightly to capture more context
+        expansion = 10
+        x1_exp = max(0, x1 - expansion)
+        y1_exp = max(0, y1 - expansion)
+        x2_exp = min(frame.shape[1], x2 + expansion)
+        y2_exp = min(frame.shape[0], y2 + expansion)
+        
+        ocr_text, confidence = extract_text_from_roi(self.ocr_reader, frame, x1_exp, y1_exp, x2_exp, y2_exp)
+        
+        # Always add OCR result if we found something (even low confidence)
+        if ocr_text:  # Only add if we actually found text
+            bottle.add_ocr_result(ocr_text, confidence, self.processed_frame_count)
+            
+            # Save resutls to CSV if we have meaningful text with reasonable confidence
+            if confidence >= OCR_CONFIDENCE_THRESHOLD:
+                save_ocr_to_csv(
+                    bottle_id=bottle.index,
+                    camera_name=self.name,
+                    frame_number=self.processed_frame_count,
+                    ocr_text=ocr_text,
+                    confidence=confidence,
+                    timestamp=time()
+                )
+                if VERBOSE_DBUG:
+                    log(f"Camera {self.name}: Bottle {bottle.index} OCR [{bottle.ocr_attempts}]: '{ocr_text}' (confidence: {confidence:.2f})")
     
     def draw_rect_on_frame(self, frame, x_center, y_center, scale, bottle: Bottle = None):
         
@@ -397,7 +565,7 @@ class Camera(FrameGenerator):
     frame_index: int
     stack_rect: tuple[int, int, int, int]  # x, y, w, h
     
-    def __init__(self, name: str, video_path: str, start_skip: int = 0, start_index: int = 0):
+    def __init__(self, name: str, video_path: str, start_delay: int = 0, start_index: int = 0):
         super().__init__()
         self.name = name
         self.video_path = video_path
@@ -415,15 +583,26 @@ class Camera(FrameGenerator):
         
         if SAVE_VIDEO:
             self.output_path = f'runs/detect/track/{input_path.stem}_tracked.mp4'
+            # Create the output directory if it doesn't exist
+            Path(self.output_path).parent.mkdir(parents=True, exist_ok=True)
+            
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            self.out = cv2.VideoWriter(self.output_path, fourcc, self.capture_fps / FRAMES_TO_SKIP, (self.adjusted_width, self.adjusted_height))
+            # Use the output dimensions (display size) for the video writer
+            self.out = cv2.VideoWriter(
+                self.output_path, 
+                fourcc, 
+                self.capture_fps / self.get_allowed_frame_skip(), 
+                (self.output_width, self.output_height)
+            )
+            log(f"Camera {self.name}: Saving video to {self.output_path} with dimensions {self.output_width}x{self.output_height}")
+        
         
         self.bottles = {}
         self.last_bottle_index = start_index
         
-        start_skip += EXTRA_CAMERA_DELAY
-        frames_to_skip = int(start_skip * self.capture_fps)
-        log(f"Camera {self.name}: Skipping first {frames_to_skip} frames for start delay of {start_skip} seconds.")
+        start_delay += EXTRA_CAMERA_DELAY
+        frames_to_skip = int(start_delay * self.capture_fps)
+        log(f"Camera {self.name}: Skipping first {frames_to_skip} frames for start delay of {start_delay} seconds.")
         self.skip_frames(frames_to_skip)
         
         self.processed_frame_count = 0
@@ -579,9 +758,11 @@ class Camera(FrameGenerator):
     
     def _image_processing_worker(self):
         blabber("Starting batch preprocessing.")
-        while not self.preprocess_frames(BATCH_SIZE):
+        while self.running:
+            finished = self.preprocess_frames(BATCH_SIZE)
             blabber(f"Processed a batch of {BATCH_SIZE} images")
-            pass
+            if finished:
+                break
     
     def start_preprocessing(self):
         self.running = True
@@ -603,7 +784,9 @@ class Camera(FrameGenerator):
     
     def release(self):
         self.cap.release()
-        if SAVE_VIDEO: self.out.release()
+        if SAVE_VIDEO and hasattr(self, 'out') and self.out is not None: 
+            self.out.release()
+            log(f"Camera {self.name}: Video saved to {self.output_path}")
         self.stop_preprocessing()
     
     def finish_frame(self):
@@ -1172,6 +1355,47 @@ class BottleTracker(FrameGenerator):
         # reset disagreement counts
         self.camera_disagreement_counts = {}
 
+
+    def print_ocr_summary(self):
+        """Print a summary of all OCR results"""
+        if not USE_OCR or not os.path.exists(OCR_RESULTS_CSV):
+            return
+            
+        try:
+            df = pd.read_csv(OCR_RESULTS_CSV)
+            if df.empty:
+                log("No OCR results collected.")
+                return
+                
+            log("\n=== OCR Results Summary ===")
+            log(f"Total OCR entries: {len(df)}")
+            log(f"Unique bottles with OCR: {df['bottle_id'].nunique()}")
+            
+            # Group by bottle_id and get best OCR result for each bottle
+            best_results = df.loc[df.groupby('bottle_id')['confidence'].idxmax()]
+            
+            log("\nBest OCR results per bottle:")
+            for _, row in best_results.iterrows():
+                # Count total attempts for this bottle
+                bottle_attempts = len(df[df['bottle_id'] == row['bottle_id']])
+                log(f"Bottle {row['bottle_id']}: '{row['ocr_text']}' (confidence: {row['confidence']:.2f}, attempts: {bottle_attempts})")
+                
+            # Show all unique texts found for each bottle
+            log("\nAll unique OCR texts per bottle:")
+            for bottle_id in df['bottle_id'].unique():
+                bottle_data = df[df['bottle_id'] == bottle_id]
+                unique_texts = bottle_data['ocr_text'].unique()
+                log(f"Bottle {bottle_id}: {len(unique_texts)} unique texts")
+                for text in unique_texts:
+                    if text.strip():  # Only show non-empty texts
+                        max_conf = bottle_data[bottle_data['ocr_text'] == text]['confidence'].max()
+                        log(f"  - '{text}' (max confidence: {max_conf:.2f})")
+                
+            log(f"\nFull results saved to: {OCR_RESULTS_CSV}")
+            
+        except Exception as e:
+            log(f"Error generating OCR summary: {e}")
+
     # Boring functions
 
     def split_array(self, arr, max_length):
@@ -1185,6 +1409,8 @@ class BottleTracker(FrameGenerator):
         self.stop_preprocessing()
         for camera in self.cameras: camera.release()
         cv2.destroyAllWindows()
+    
+    
 
 if __name__ == '__main__':
     main()

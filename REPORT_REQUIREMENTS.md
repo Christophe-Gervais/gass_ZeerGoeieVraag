@@ -1,4 +1,0 @@
-
-
-Confusion matrix
-Accuracy score

@@ -11,13 +11,13 @@ from concurrent.futures import ThreadPoolExecutor
 
 
 # Input options
-MODEL_PATH = "runs/detect/gasbottle_ok_nok_final_try23/weights/best.pt"
+MODEL_PATH = "runs/detect/gasbottle_ok_nok4/weights/best.pt"
 INPUT_VIDEO_FPS = 60
 EXTRA_CAMERA_DELAY = 1  # Delay in seconds
 MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 
 # Algorithm options
-IMAGE_SIZE = 320
+IMAGE_SIZE = 160
 BATCH_SIZE = 70
 SKIP_FRAMES = 8 # Skip this many frames between each processing step
 TEMPORAL_CUTOFF_THRESHOLD = 40  # Amount of frames a bottle needs to be seen to be considered tracked.
@@ -28,10 +28,10 @@ EXTRA_CORRECTION = False # Allow correcting half the feed if one half disagrees 
 LOWER_DISPUTE_CORRECTION = True
 
 # Preview options
-PREVIEW_IMAGE_SIZE = 480
+PREVIEW_IMAGE_SIZE = 320
 SAVE_VIDEO = False
 PREVIEW_WINDOW_NAME = "Live Tracking Preview"
-DISPLAY_FRAMERATE = 5
+DISPLAY_FRAMERATE = 2
 MAX_QUEUE_SIZE = 100 # The limit for the queue size, set to -1 to disable limit (but beware you might run out of memory then!)
 QUEUE_SIZE_CHECK_INTERVAL = 0.1 # Amount of seconds to wait when queue is full
 RENDER_SKIPPED_FRAMES = False # Whether to render skipped frames in between processed frames
@@ -395,7 +395,7 @@ class BottleTracker:
             return True
         log(f"Running inference on batch of {len(inference_frames)} frames.")
         meter = PerformanceMeter()
-        resultses = self.model.track(inference_frames, conf=0.8, persist=True, device=0, verbose=VERBOSE_YOLO)
+        resultses = self.model.track(inference_frames, conf=0.25, persist=True, device=0, verbose=VERBOSE_YOLO)
         elapsed_time = meter.elapsed()
         ips = BATCH_SIZE / elapsed_time
         log(f"Finished inferencing. Took {meter.elapsed()} seconds for {BATCH_SIZE} images ({ips} images/s).")
@@ -518,8 +518,7 @@ class BottleTracker:
         if bottle is not None:
             status_text = "OK" if bottle.is_ok else "NOK"
             label = f'Bottle {bottle.index} ({status_text})'
-            # Changed font scale from 1 to 0.4 and thickness from 2 to 1 for smaller text
-            cv2.putText(frame, label, (int(x1 + 5), int(y1 + 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.4, id_color, 1)
+            cv2.putText(frame, label, (int(x1 + 10), int(y1 + 30)), cv2.FONT_HERSHEY_SIMPLEX, 1, id_color, 2)
         
         return x1, y1, y2, y2
     

@@ -30,10 +30,10 @@ MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 
 # Algorithm options
 IMAGE_SIZE = 320
-BATCH_SIZE = 70
+BATCH_SIZE = 7
 FRAMES_TO_SKIP = 5 # Skip this many frames between each processing step, -1 to disable.
 TEMPORAL_CUTOFF_THRESHOLD = 3  # Amount of frames a bottle needs to be seen to be considered tracked. Not frame skip adjusted because this is for the model.
-PRECOMBINE = False
+PRECOMBINE = True
 YOLO_CONF = 0.8
 
 # Correction algorithm options
@@ -57,7 +57,6 @@ FRAME_CHANGE_COUNT = 3 # How many frames to compare the size change on
 # OCR options
 USE_OCR = True
 OCR_CONFIDENCE_THRESHOLD = 0.5
-OCR_READER = None
 OCR_RESULTS_CSV = "bottle_ocr_results.csv"
 OCR_FRAME_INTERVAL = 2  # Process OCR every N frames for each bottle
 OCR_MAX_ATTEMPTS_PER_BOTTLE = 50  # Maximum number of OCR attempts per bottle (to prevent infinite processing)
@@ -86,9 +85,6 @@ VERBOSE_PLOT = False # Plot the box size algorithm data
 VERBOSE_MEMO = True # Show memory info
 
 def main():
-    # Initialise the OCR reader 
-    global OCR_READER
-    OCR_READER = initialize_ocr()
     
     # Create cameras
     cameras: list[Camera] = [
@@ -118,20 +114,6 @@ def blabber(*values: object, **kwargs):
 
 def get_frame_skip_divider():
     return FRAMES_TO_SKIP if FRAMES_TO_SKIP > 0 else 1
-
-def initialize_ocr():
-    """Initialize the OCR reader"""
-    if not USE_OCR:
-        return None
-    try:
-        log("Initializing EasyOCR...")
-        # Initialize EasyOCR reader
-        reader = easyocr.Reader(['en'])  # English language
-        log("EasyOCR initialized successfully")
-        return reader
-    except Exception as e:
-        log(f"Error initializing OCR: {e}")
-        return None
 
 def save_ocr_to_csv(bottle_id, camera_name, frame_number, ocr_text, confidence, timestamp):
     """Save OCR results to CSV file"""
@@ -438,6 +420,24 @@ class Bottle:
         self.prev_x = self.x
         self.prev_y = self.y
         return self.state
+    
+    def add_ocr_result(self, text, confidence, frame_number):
+        """Add OCR result and track the best one"""
+        self.ocr_attempts += 1
+        self.last_ocr_frame = frame_number
+        
+        # Store all OCR results
+        self.ocr_texts.append({
+            'text': text,
+            'confidence': confidence,
+            'frame_number': frame_number,
+            'timestamp': time()
+        })
+        
+        # Update best result if this is better
+        if confidence > self.best_ocr_confidence:
+            self.best_ocr_text = text
+            self.best_ocr_confidence = confidence
 
 class Batch:
     def __init__(self, frames, is_precombined = True):
@@ -451,6 +451,8 @@ class FrameGenerator:
         self.results_queue = queue.Queue()
         self.frame_queue: queue.Queue[cv2.typing.MatLike] = queue.Queue()
         self.model = YOLO(MODEL_PATH)
+        self.ocr_reader = self.initialize_ocr()
+        self.ocr_frame_number = 0
         
         pass
     def get_frame(self):
@@ -459,13 +461,27 @@ class FrameGenerator:
         except queue.Empty:
             return None
         
+        
+    def initialize_ocr(self):
+        """Initialize the OCR reader"""
+        if not USE_OCR:
+            return None
+        try:
+            log("Initializing EasyOCR...")
+            reader = easyocr.Reader(['en'])  # English language
+            log("EasyOCR initialized successfully")
+            return reader
+        except Exception as e:
+            log(f"Error initializing OCR: {e}")
+            return None
+        
     def perform_ocr_on_bottle(self, frame, bottle, x1, y1, x2, y2):
         """Perform OCR on a bottle region and update bottle object"""
         if not USE_OCR or self.ocr_reader is None:
             return
         
         # Check if we should process OCR for this bottle in this frame
-        if not bottle.should_process_ocr(self.processed_frame_count):
+        if not bottle.should_process_ocr(self.ocr_frame_number):
             return
         
         # Expand ROI slightly to capture more context
@@ -479,22 +495,23 @@ class FrameGenerator:
         
         # Always add OCR result if we found something (even low confidence)
         if ocr_text:  # Only add if we actually found text
-            bottle.add_ocr_result(ocr_text, confidence, self.processed_frame_count)
+            bottle.add_ocr_result(ocr_text, confidence, self.ocr_frame_number)
             
             # Save resutls to CSV if we have meaningful text with reasonable confidence
             if confidence >= OCR_CONFIDENCE_THRESHOLD:
                 save_ocr_to_csv(
                     bottle_id=bottle.index,
                     camera_name=self.name,
-                    frame_number=self.processed_frame_count,
+                    frame_number=self.processed_focr_frame_numberrame_count,
                     ocr_text=ocr_text,
                     confidence=confidence,
                     timestamp=time()
                 )
+                self.ocr_frame_number += 1
                 if VERBOSE_DBUG:
                     log(f"Camera {self.name}: Bottle {bottle.index} OCR [{bottle.ocr_attempts}]: '{ocr_text}' (confidence: {confidence:.2f})")
     
-    def draw_rect_on_frame(self, frame, x_center, y_center, scale, bottle: Bottle = None):
+    def draw_bottle(self, frame, x_center, y_center, scale, bottle: Bottle = None):
         
         output_frame_width = frame.shape[1]
         output_frame_height = frame.shape[0]
@@ -515,6 +532,7 @@ class FrameGenerator:
         x2 = max(0, min(x2, output_frame_width - 1))
         y2 = max(0, min(y2, output_frame_height - 1))
         
+        
         thickness = 2
         bounding_color = (0, 0, 255) # Red
         if bottle.state is BottleState.IN_FRAME:
@@ -526,6 +544,8 @@ class FrameGenerator:
             
         bottle_id_color = (0, 0, 255)
         if bottle is not None:
+            self.perform_ocr_on_bottle(frame, bottle, x1, y1, x2, y2)
+            
             if bottle.was_corrected:
                 bottle_id_color = (255, 255, 0)  # Geel voor gecorrigeerde bottles
             elif bottle.is_ok:
@@ -739,8 +759,9 @@ class Camera(FrameGenerator):
                             bottle = self.temporary_bottles[track_id]
                         if track_id in self.bottles:
                             bottle = self.bottles[track_id]
-                        
-                        self.draw_rect_on_frame(frame, x_center, y_center, x_scale, bottle)
+                            
+                        if bottle is not None:
+                            self.draw_bottle(frame, x_center, y_center, x_scale, bottle)
                 
         
         if VERBOSE_DBUG:
@@ -918,16 +939,27 @@ class BottleTracker(FrameGenerator):
             blabber(f"Prepared a batch of {BATCH_SIZE} images")
             pass
     
+    def start_producer(self, target) -> threading.Thread:
+        thread = threading.Thread(target=target)
+        thread.daemon = True
+        thread.start()
+        return thread
+    
     def start_preprocessing(self):
         self.running = True
-        self.inference_thread = threading.Thread(target=self._inference_processing_worker)
-        self.inference_thread.daemon = True
-        self.inference_thread.start()
         
-        self.batch_thread = threading.Thread(target=self._batch_processing_worker)
-        self.batch_thread.daemon = True
-        self.batch_thread.start()
-        print("Background producer started")
+        # self.batch_thread = threading.Thread(target=self._batch_processing_worker)
+        # self.batch_thread.daemon = True
+        # self.batch_thread.start()
+        self.inference_thread = self.start_producer(self._batch_processing_worker)
+        
+        log("Batch producer started")
+        
+        # self.inference_thread = threading.Thread(target=self._inference_processing_worker)
+        # self.inference_thread.daemon = True
+        # self.inference_thread.start()
+        self.inference_thread = self.start_producer(self._inference_processing_worker)
+        log("Inference producer started")
     
     
     def stop_preprocessing(self):
@@ -1207,7 +1239,7 @@ class BottleTracker(FrameGenerator):
                                     if track_id in camera.bottles:
                                         bottle = camera.bottles[track_id]
                                     
-                                    self.draw_rect_on_frame(output_frame, x_center, y_center, scale, bottle)
+                                    self.draw_bottle(output_frame, x_center, y_center, scale, bottle)
                                     
                     if VERBOSE_DBUG:
                         cv2.putText(output_frame, f'Inference queue: {self.frame_queue.qsize()} batch queue: {self.batch_queue.qsize()}', (10, output_frame_height - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)

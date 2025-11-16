@@ -509,24 +509,25 @@ class FrameGenerator:
     def draw_bottle(self, frame, bottle: Bottle = None):
         
         
-        output_frame_width = frame.shape[1]
-        output_frame_height = frame.shape[0]
+        # output_frame_width = frame.shape[1]
+        # output_frame_height = frame.shape[0]
         
-        scaled_x_center = int(bottle.x * bottle.scale)
-        scaled_y_center = int(bottle.y * bottle.scale)
-        scaled_box_width = int(bottle.width * bottle.scale)
-        scaled_box_height = int(bottle.height * bottle.scale)
+        # scaled_x_center = int(bottle.x * bottle.scale)
+        # scaled_y_center = int(bottle.y * bottle.scale)
+        # scaled_box_width = int(bottle.width * bottle.scale)
+        # scaled_box_height = int(bottle.height * bottle.scale)
         
-        x1 = int(scaled_x_center - scaled_box_width / 2)
-        y1 = int(scaled_y_center - scaled_box_height / 2)
-        x2 = int(scaled_x_center + scaled_box_width / 2)
-        y2 = int(scaled_y_center + scaled_box_height / 2)
+        # x1 = int(scaled_x_center - scaled_box_width / 2)
+        # y1 = int(scaled_y_center - scaled_box_height / 2)
+        # x2 = int(scaled_x_center + scaled_box_width / 2)
+        # y2 = int(scaled_y_center + scaled_box_height / 2)
         
-        # Ensure coordinates are within frame bounds
-        x1 = max(0, min(x1, output_frame_width - 1))
-        y1 = max(0, min(y1, output_frame_height - 1))
-        x2 = max(0, min(x2, output_frame_width - 1))
-        y2 = max(0, min(y2, output_frame_height - 1))
+        # # Ensure coordinates are within frame bounds
+        # x1 = max(0, min(x1, output_frame_width - 1))
+        # y1 = max(0, min(y1, output_frame_height - 1))
+        # x2 = max(0, min(x2, output_frame_width - 1))
+        # y2 = max(0, min(y2, output_frame_height - 1))
+        x1, y1, x2, y2 = bottle.get_scaled_rect(frame)
         
         
         thickness = 2

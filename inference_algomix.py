@@ -25,9 +25,9 @@ EXTRA_CAMERA_DELAY = 1  # Delay in seconds
 MAX_FRAMES = 1000000 # The amount of frames to process before quitting
 
 # Algorithm options
-IMAGE_SIZE = 320
+IMAGE_SIZE = 640
 BATCH_SIZE = 7
-FRAMES_TO_SKIP = 5 # Skip this many frames between each processing step, -1 to disable.
+FRAMES_TO_SKIP = 0 # Skip this many frames between each processing step, -1 to disable.
 TEMPORAL_CUTOFF_THRESHOLD = 3  # Amount of frames a bottle needs to be seen to be considered tracked. Not frame skip adjusted because this is for the model.
 PRECOMBINE = True
 YOLO_CONF = 0.8
@@ -53,7 +53,7 @@ FRAME_CHANGE_COUNT = 3 # How many frames to compare the size change on
 # OCR options
 USE_OCR = True
 OCR_CONFIDENCE_THRESHOLD = 0.5
-OCR_RESULTS_CSV = "bottle_ocr_results.csv"
+OCR_RESULTS_CSV = "bottle_ocr_results3.csv"
 OCR_FRAME_INTERVAL = 2  # Process OCR every N frames for each bottle
 OCR_MAX_ATTEMPTS_PER_BOTTLE = 50  # Maximum number of OCR attempts per bottle (to prevent infinite processing)
 
@@ -84,11 +84,11 @@ def main():
     
     # Create cameras
     cameras: list[Camera] = [
-        # Camera('Top', 'videos/14_55/14_55_top_cropped.mp4', start_skip=3),
+        Camera('Top', 'videos/14_55/14_55_top_cropped.mp4', start_skip=3),
         Camera('Front', 'videos/14_55/14_55_front_cropped.mp4', start_delay=0),
         
-        # Camera('Back Left', 'videos/14_55/14_55_back_left_cropped.mp4', start_skip=2),
-        # Camera('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_skip=1, start_index=-1),
+        Camera('Back Left', 'videos/14_55/14_55_back_left_cropped.mp4', start_skip=2),
+        Camera('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_skip=1, start_index=-1),
     ]
     
     bottle_tracker = BottleTracker(cameras)

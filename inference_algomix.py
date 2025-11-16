@@ -12,10 +12,6 @@ from enum import Enum
 import math
 import matplotlib.pyplot as plt
 import tracemalloc
-# import IPython.display
-# import matplotlib.pyplot as plt
-# from PIL import Image
-# import io
 import easyocr
 import pandas as pd
 import csv
@@ -438,6 +434,17 @@ class Bottle:
         if confidence > self.best_ocr_confidence:
             self.best_ocr_text = text
             self.best_ocr_confidence = confidence
+    
+    def should_process_ocr(self, current_frame):
+        """Determine if we should process OCR for this bottle in the current frame"""
+        if self.ocr_attempts >= OCR_MAX_ATTEMPTS_PER_BOTTLE:
+            return False
+        
+        # Process OCR at regular intervals
+        if self.last_ocr_frame == -1 or (current_frame - self.last_ocr_frame) >= OCR_FRAME_INTERVAL:
+            return True
+        
+        return False
 
 class Batch:
     def __init__(self, frames, is_precombined = True):
@@ -445,14 +452,12 @@ class Batch:
         self.is_precombined = is_precombined
 
 class FrameGenerator:
-    ocr_reader: easyocr.Reader
     
     def __init__(self):
         self.results_queue = queue.Queue()
         self.frame_queue: queue.Queue[cv2.typing.MatLike] = queue.Queue()
         self.model = YOLO(MODEL_PATH)
-        self.ocr_reader = self.initialize_ocr()
-        self.ocr_frame_number = 0
+        # self.ocr_frame_number = 0
         
         pass
     def get_frame(self):
@@ -462,54 +467,7 @@ class FrameGenerator:
             return None
         
         
-    def initialize_ocr(self):
-        """Initialize the OCR reader"""
-        if not USE_OCR:
-            return None
-        try:
-            log("Initializing EasyOCR...")
-            reader = easyocr.Reader(['en'])  # English language
-            log("EasyOCR initialized successfully")
-            return reader
-        except Exception as e:
-            log(f"Error initializing OCR: {e}")
-            return None
-        
-    def perform_ocr_on_bottle(self, frame, bottle, x1, y1, x2, y2):
-        """Perform OCR on a bottle region and update bottle object"""
-        if not USE_OCR or self.ocr_reader is None:
-            return
-        
-        # Check if we should process OCR for this bottle in this frame
-        if not bottle.should_process_ocr(self.ocr_frame_number):
-            return
-        
-        # Expand ROI slightly to capture more context
-        expansion = 10
-        x1_exp = max(0, x1 - expansion)
-        y1_exp = max(0, y1 - expansion)
-        x2_exp = min(frame.shape[1], x2 + expansion)
-        y2_exp = min(frame.shape[0], y2 + expansion)
-        
-        ocr_text, confidence = extract_text_from_roi(self.ocr_reader, frame, x1_exp, y1_exp, x2_exp, y2_exp)
-        
-        # Always add OCR result if we found something (even low confidence)
-        if ocr_text:  # Only add if we actually found text
-            bottle.add_ocr_result(ocr_text, confidence, self.ocr_frame_number)
-            
-            # Save resutls to CSV if we have meaningful text with reasonable confidence
-            if confidence >= OCR_CONFIDENCE_THRESHOLD:
-                save_ocr_to_csv(
-                    bottle_id=bottle.index,
-                    camera_name=self.name,
-                    frame_number=self.processed_focr_frame_numberrame_count,
-                    ocr_text=ocr_text,
-                    confidence=confidence,
-                    timestamp=time()
-                )
-                self.ocr_frame_number += 1
-                if VERBOSE_DBUG:
-                    log(f"Camera {self.name}: Bottle {bottle.index} OCR [{bottle.ocr_attempts}]: '{ocr_text}' (confidence: {confidence:.2f})")
+    
     
     def draw_bottle(self, frame, x_center, y_center, scale, bottle: Bottle = None):
         
@@ -544,7 +502,6 @@ class FrameGenerator:
             
         bottle_id_color = (0, 0, 255)
         if bottle is not None:
-            self.perform_ocr_on_bottle(frame, bottle, x1, y1, x2, y2)
             
             if bottle.was_corrected:
                 bottle_id_color = (255, 255, 0)  # Geel voor gecorrigeerde bottles
@@ -592,6 +549,9 @@ class Camera(FrameGenerator):
     
     frame_index: int
     stack_rect: tuple[int, int, int, int]  # x, y, w, h
+    
+    ocr_reader: easyocr.Reader
+    
     
     def __init__(self, name: str, video_path: str, start_delay: int = 0, start_index: int = 0):
         super().__init__()
@@ -654,6 +614,9 @@ class Camera(FrameGenerator):
         
         self.inference_width = int(IMAGE_SIZE * self.aspect_ratio)
         self.inference_height = IMAGE_SIZE
+        
+        self.ocr_reader = self.initialize_ocr()
+        
     
     def preprocess_frames(self, num_frames: int):
         
@@ -873,6 +836,73 @@ class Camera(FrameGenerator):
         if self.sequential_correction_count > SEQUENTIAL_CORRECTION_THRESHOLD:
             self.last_bottle_index = corrected_index
             log(f"I, Camera {self.name}, was wrong {self.sequential_correction_count} in a row. I really thought I was right but I guess I wasn't. As punishment I will correct myself, remember that the correct index from now on is {corrected_index} and I will try my best to never do this again. I'm so sorry.")
+
+    def initialize_ocr(self):
+        """Initialize the OCR reader"""
+        if not USE_OCR:
+            return None
+        try:
+            log("Initializing EasyOCR...")
+            reader = easyocr.Reader(['en'])  # English language
+            log("EasyOCR initialized successfully")
+            return reader
+        except Exception as e:
+            log(f"Error initializing OCR: {e}")
+            return None
+        
+    def perform_ocr_on_bottle(self, frame, bottle: Bottle, x_center, y_center, scale):
+        """Perform OCR on a bottle region and update bottle object"""
+        if not USE_OCR or self.ocr_reader is None:
+            return
+        
+        # Check if we should process OCR for this bottle in this frame
+        if not bottle.should_process_ocr(self.processed_frame_count):
+            return
+        
+        output_frame_width = frame.shape[1]
+        output_frame_height = frame.shape[0]
+        
+        scaled_x_center = int(x_center * scale)
+        scaled_y_center = int(y_center * scale)
+        scaled_box_width = int(bottle.width * scale)
+        scaled_box_height = int(bottle.height * scale)
+        
+        x1 = int(scaled_x_center - scaled_box_width / 2)
+        y1 = int(scaled_y_center - scaled_box_height / 2)
+        x2 = int(scaled_x_center + scaled_box_width / 2)
+        y2 = int(scaled_y_center + scaled_box_height / 2)
+        
+        # Ensure coordinates are within frame bounds
+        x1 = max(0, min(x1, output_frame_width - 1))
+        y1 = max(0, min(y1, output_frame_height - 1))
+        x2 = max(0, min(x2, output_frame_width - 1))
+        y2 = max(0, min(y2, output_frame_height - 1))
+        
+        # Expand ROI slightly to capture more context
+        expansion = 10
+        x1_exp = max(0, x1 - expansion)
+        y1_exp = max(0, y1 - expansion)
+        x2_exp = min(frame.shape[1], x2 + expansion)
+        y2_exp = min(frame.shape[0], y2 + expansion)
+        
+        ocr_text, confidence = extract_text_from_roi(self.ocr_reader, frame, x1_exp, y1_exp, x2_exp, y2_exp)
+        
+        # Always add OCR result if we found something (even low confidence)
+        if ocr_text:  # Only add if we actually found text
+            bottle.add_ocr_result(ocr_text, confidence, self.processed_frame_count)
+            
+            # Save resutls to CSV if we have meaningful text with reasonable confidence
+            if confidence >= OCR_CONFIDENCE_THRESHOLD:
+                save_ocr_to_csv(
+                    bottle_id=bottle.index,
+                    camera_name=self.name,
+                    frame_number=self.processed_frame_count,
+                    ocr_text=ocr_text,
+                    confidence=confidence,
+                    timestamp=time()
+                )
+                if VERBOSE_DBUG:
+                    log(f"Camera {self.name}: Bottle {bottle.index} OCR [{bottle.ocr_attempts}]: '{ocr_text}' (confidence: {confidence:.2f})")
 
 class TrackingAlgorithm(Enum):
     TEMPORAL = 0
@@ -1191,7 +1221,6 @@ class BottleTracker(FrameGenerator):
                 output_frame_height = PREVIEW_IMAGE_SIZE
                 output_frame = cv2.resize(combined_frame, (output_frame_width, output_frame_height))
 
-                scale = output_frame_height / self.inference_height
                 
                 for result in results:
                     # Get results inside the camera stack frame rect
@@ -1238,6 +1267,12 @@ class BottleTracker(FrameGenerator):
                                         bottle = camera.temporary_bottles[track_id]
                                     if track_id in camera.bottles:
                                         bottle = camera.bottles[track_id]
+                                        
+                                    scale = output_frame_height / self.inference_height
+                                        
+                                        
+                                    if bottle is not None:
+                                        camera.perform_ocr_on_bottle(output_frame, bottle, x_center, y_center, scale)
                                     
                                     self.draw_bottle(output_frame, x_center, y_center, scale, bottle)
                                     

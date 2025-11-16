@@ -12,6 +12,14 @@ from enum import Enum
 import math
 import matplotlib.pyplot as plt
 import tracemalloc
+# import IPython.display
+# import matplotlib.pyplot as plt
+# from PIL import Image
+# import io
+import easyocr
+import pandas as pd
+import csv
+import os
 
 
 # Input options
@@ -25,7 +33,7 @@ IMAGE_SIZE = 320
 BATCH_SIZE = 70
 FRAMES_TO_SKIP = 5 # Skip this many frames between each processing step, -1 to disable.
 TEMPORAL_CUTOFF_THRESHOLD = 3  # Amount of frames a bottle needs to be seen to be considered tracked. Not frame skip adjusted because this is for the model.
-PRECOMBINE = True
+PRECOMBINE = False
 YOLO_CONF = 0.8
 
 # Correction algorithm options
@@ -102,11 +110,11 @@ def main():
 
 def log(*values: object, **kwargs):
     if not VERBOSE_LOGS: return
-    print(*values, *kwargs)
+    print(*values, **kwargs)
     
 def blabber(*values: object, **kwargs):
     if not VERBOSE_BLAB: return
-    print(*values, *kwargs)
+    print(*values, **kwargs)
 
 def get_frame_skip_divider():
     return FRAMES_TO_SKIP if FRAMES_TO_SKIP > 0 else 1

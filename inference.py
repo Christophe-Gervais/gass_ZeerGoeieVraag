@@ -84,11 +84,11 @@ def main():
     
     # Create cameras
     cameras: list[Camera] = [
-        Camera('Top', 'videos/14_55/14_55_top_cropped.mp4', start_skip=3),
+        Camera('Top', 'videos/14_55/14_55_top_cropped.mp4', start_delay=3),
         Camera('Front', 'videos/14_55/14_55_front_cropped.mp4', start_delay=0),
         
-        Camera('Back Left', 'videos/14_55/14_55_back_left_cropped.mp4', start_skip=2),
-        Camera('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_skip=1, start_index=-1),
+        Camera('Back Left', 'videos/14_55/14_55_back_left_cropped.mp4', start_delay=2),
+        Camera('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_delay=1, start_index=-1),
     ]
     
     bottle_tracker = BottleTracker(cameras)
@@ -294,16 +294,25 @@ class Bottle:
     ocr_attempts: int = 0
     last_ocr_frame: int = -1
     
-    def __init__(self, x: float, y: float, width: float, height: float, yolo_id: int, is_ok = True):
+    relative_x: float
+    relative_y: float
+    scale: float
+    
+    def __init__(self, box, yolo_id: int, is_ok = True):
+        x, y, width, height = box
         self.times_seen = 0
-        self.update(x, y, width, height, is_ok)
+        # self.update(x, y, box, width, height, is_ok)
         self.prev_x = 0
         self.prev_y = 0
         # self.x = x
         # self.y = y
+        self.x = 0.0
+        self.y = 0.0
+        self.width = 0.0
+        self.height = 0.0
         self.yolo_id = yolo_id
         self.bottle_size_dist_history = list()
-        # self.is_ok = is_ok
+        self.is_ok = None
         self.state = BottleState.UNKNOWN
         
         # self.width = width
@@ -312,6 +321,9 @@ class Bottle:
         self.plotter = Plotter(self.yolo_id) if VERBOSE_PLOT else None
         
         self.ocr_texts = []  # Initialize as empty list
+        self.relative_x = 0.0
+        self.relative_y = 0.0
+        self.scale = 1.0
     
     def add_ocr_result(self, text, confidence, frame_number):
         """Add OCR result and track the best one"""
@@ -342,11 +354,15 @@ class Bottle:
         
         return False
     
-    def update(self, x: float, y: float, width, height, is_ok: bool | None):
+    def update(self, box, is_ok: bool | None, relative_x: float, relative_y: float, scale: float):
+        x, y, width, height = box
         self.x = x
         self.y = y
         self.width = width
         self.height = height
+        self.relative_x = relative_x
+        self.relative_y = relative_y
+        self.scale = scale
         if is_ok is not None:
             self.is_ok = is_ok
         self.times_seen += 1
@@ -445,6 +461,27 @@ class Bottle:
             return True
         
         return False
+    
+    def get_scaled_rect(self, frame: cv2.typing.MatLike):
+        frame_width = frame.shape[1]
+        frame_height = frame.shape[0]
+        
+        scaled_x_center = int(self.x * self.scale)
+        scaled_y_center = int(self.y * self.scale)
+        scaled_box_width = int(self.width * self.scale)
+        scaled_box_height = int(self.height * self.scale)
+        
+        x1 = int(scaled_x_center - scaled_box_width / 2)
+        y1 = int(scaled_y_center - scaled_box_height / 2)
+        x2 = int(scaled_x_center + scaled_box_width / 2)
+        y2 = int(scaled_y_center + scaled_box_height / 2)
+        
+        # Ensure coordinates are within frame bounds
+        x1 = max(0, min(x1, frame_width - 1))
+        y1 = max(0, min(y1, frame_height - 1))
+        x2 = max(0, min(x2, frame_width - 1))
+        y2 = max(0, min(y2, frame_height - 1))
+        return x1, y1, x2, y2
 
 class Batch:
     def __init__(self, frames, is_precombined = True):
@@ -469,15 +506,16 @@ class FrameGenerator:
         
     
     
-    def draw_bottle(self, frame, x_center, y_center, scale, bottle: Bottle = None):
+    def draw_bottle(self, frame, bottle: Bottle = None):
+        
         
         output_frame_width = frame.shape[1]
         output_frame_height = frame.shape[0]
         
-        scaled_x_center = int(x_center * scale)
-        scaled_y_center = int(y_center * scale)
-        scaled_box_width = int(bottle.width * scale)
-        scaled_box_height = int(bottle.height * scale)
+        scaled_x_center = int(bottle.x * bottle.scale)
+        scaled_y_center = int(bottle.y * bottle.scale)
+        scaled_box_width = int(bottle.width * bottle.scale)
+        scaled_box_height = int(bottle.height * bottle.scale)
         
         x1 = int(scaled_x_center - scaled_box_width / 2)
         y1 = int(scaled_y_center - scaled_box_height / 2)
@@ -793,14 +831,17 @@ class Camera(FrameGenerator):
         del self.temporary_bottles[track_id]
         self.last_registered_bottle = bottle
         
-    def register_bottle(self, x, y, width, height, track_id, is_ok = True) -> bool:
+    def register_bottle(self, track_id, class_id, box, relative_x, relative_y, scale) -> bool:
+        is_ok = class_id == 0
+        is_new = False
+        x_center, y_center, width, height = box
+        bottle = None
         if track_id in self.bottles:
-            self.bottles[track_id].update(x, y, width, height, is_ok)
-            return False 
+            bottle = self.bottles[track_id]
         
-        if track_id in self.temporary_bottles:
+        elif track_id in self.temporary_bottles:
             bottle = self.temporary_bottles[track_id]
-            bottle.update(x, y, width, height, is_ok)
+            # bottle.update(box, is_ok, relative_x, relative_y)
             if COUNT_BY_BOTTLE_SIZE:
                 # bottle.bottle_size_history.append(width)
                 # size_streak = 0
@@ -817,19 +858,20 @@ class Camera(FrameGenerator):
                 state = bottle.register_state_change(width)
                     # bottle.bottle_size_history.clear()
                 if state is BottleState.ENTERING:
-                    return True
+                    is_new = True
             else:
                 self.track_ids_seen[track_id] += 1
                 if self.track_ids_seen[track_id] >= TEMPORAL_CUTOFF_THRESHOLD:
                     self.promote_bottle(track_id)
-                    return True
-
-            return False
-        bottle = Bottle(x, y, width, height, track_id, is_ok)
-        self.temporary_bottles[track_id] = bottle
-        self.track_ids_seen[track_id] = 1
+                    is_new = True
+        else:
+            bottle = Bottle(box, track_id, is_ok)
+            self.temporary_bottles[track_id] = bottle
+            self.track_ids_seen[track_id] = 1
         
-        return False
+        bottle.update(box, is_ok, relative_x, relative_y, scale)
+        
+        return is_new
 
     def register_correction(self, corrected_index):
         self.sequential_correction_count += 1
@@ -850,7 +892,7 @@ class Camera(FrameGenerator):
             log(f"Error initializing OCR: {e}")
             return None
         
-    def perform_ocr_on_bottle(self, frame, bottle: Bottle, x_center, y_center, scale):
+    def perform_ocr_on_bottle(self, frame: cv2.typing.MatLike, bottle: Bottle):
         """Perform OCR on a bottle region and update bottle object"""
         if not USE_OCR or self.ocr_reader is None:
             return
@@ -859,24 +901,25 @@ class Camera(FrameGenerator):
         if not bottle.should_process_ocr(self.processed_frame_count):
             return
         
-        output_frame_width = frame.shape[1]
-        output_frame_height = frame.shape[0]
+        # output_frame_width = frame.shape[1]
+        # output_frame_height = frame.shape[0]
         
-        scaled_x_center = int(x_center * scale)
-        scaled_y_center = int(y_center * scale)
-        scaled_box_width = int(bottle.width * scale)
-        scaled_box_height = int(bottle.height * scale)
+        # scaled_x_center = int(bottle.x_center * bottle.scale)
+        # scaled_y_center = int(bottle.y_center * bottle.scale)
+        # scaled_box_width = int(bottle.width * bottle.scale)
+        # scaled_box_height = int(bottle.height * bottle.scale)
         
-        x1 = int(scaled_x_center - scaled_box_width / 2)
-        y1 = int(scaled_y_center - scaled_box_height / 2)
-        x2 = int(scaled_x_center + scaled_box_width / 2)
-        y2 = int(scaled_y_center + scaled_box_height / 2)
+        # x1 = int(scaled_x_center - scaled_box_width / 2)
+        # y1 = int(scaled_y_center - scaled_box_height / 2)
+        # x2 = int(scaled_x_center + scaled_box_width / 2)
+        # y2 = int(scaled_y_center + scaled_box_height / 2)
         
-        # Ensure coordinates are within frame bounds
-        x1 = max(0, min(x1, output_frame_width - 1))
-        y1 = max(0, min(y1, output_frame_height - 1))
-        x2 = max(0, min(x2, output_frame_width - 1))
-        y2 = max(0, min(y2, output_frame_height - 1))
+        # # Ensure coordinates are within frame bounds
+        # x1 = max(0, min(x1, output_frame_width - 1))
+        # y1 = max(0, min(y1, output_frame_height - 1))
+        # x2 = max(0, min(x2, output_frame_width - 1))
+        # y2 = max(0, min(y2, output_frame_height - 1))
+        x1, y1, x2, y2 = bottle.get_scaled_rect(frame)
         
         # Expand ROI slightly to capture more context
         expansion = 10
@@ -908,6 +951,8 @@ class TrackingAlgorithm(Enum):
     TEMPORAL = 0
     SIZE = 1
     SIZE_CHANGE = 2
+
+type Box = tuple[float, float, float, float]  # x_center, y_center, width, height
 
 class BottleTracker(FrameGenerator):
     cameras: list[Camera]
@@ -1247,19 +1292,19 @@ class BottleTracker(FrameGenerator):
                                 
                                 # Check if the box is inside the camera's stack rect
                                 if x <= x_center <= x + w and y <= y_center <= y + h:
+                                    # frame_x = x_center
+                                    # frame_y = y_center
                                     relative_x = (x_center - x) / w
                                     relative_y = (y_center - y) / h
+                                    scale = output_frame_height / self.inference_height
                                     
                                     if track_ids is None:
                                         continue
                                     
                                     track_id = track_ids[box_index]
+                                    class_id = class_ids[box_index] if class_ids is not None else 0
                                     
-                                    is_ok = True
-                                    if class_ids is not None:
-                                        is_ok = (class_ids[box_index] == 0)
-                                    
-                                    if camera.register_bottle(relative_x, relative_y, box_width, box_height, track_id, is_ok):
+                                    if camera.register_bottle(track_id, class_id, box, relative_x, relative_y, scale):
                                         blabber("Bottle got accepted as being new.")
                                         
                                     bottle = None
@@ -1267,14 +1312,13 @@ class BottleTracker(FrameGenerator):
                                         bottle = camera.temporary_bottles[track_id]
                                     if track_id in camera.bottles:
                                         bottle = camera.bottles[track_id]
-                                        
-                                    scale = output_frame_height / self.inference_height
-                                        
+                                    
                                         
                                     if bottle is not None:
-                                        camera.perform_ocr_on_bottle(output_frame, bottle, x_center, y_center, scale)
+                                        camera.perform_ocr_on_bottle(output_frame, bottle)
                                     
-                                    self.draw_bottle(output_frame, x_center, y_center, scale, bottle)
+                                    
+                                    self.draw_bottle(output_frame, bottle)
                                     
                     if VERBOSE_DBUG:
                         cv2.putText(output_frame, f'Inference queue: {self.frame_queue.qsize()} batch queue: {self.batch_queue.qsize()}', (10, output_frame_height - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
@@ -1373,10 +1417,6 @@ class BottleTracker(FrameGenerator):
                 
         log("Finished processing.")
         self.release()
-    
-    # def run_without_precombined(self):
-        # frames: dict[Camera, cv2.typing.MatLike] = []
-        
         
     def solve_disagreements(self):
         last_bottle_indices = set()

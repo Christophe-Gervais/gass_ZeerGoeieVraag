@@ -4,19 +4,19 @@ import os
 from glob import glob
 
 # Load your trained YOLO model for bottle detection
-model = YOLO("runs/detect/gasbottle_ok_nok4/weights/best.pt")
+model = YOLO("runs/detect/gasbottle_yolo11m_final/weights/best.pt")
 
-# Folder with extra NOK images
-images_folder = "extra_nok_images"
+# Folder with extra OK images
+images_folder = "extra_ok_images"
 images = glob(os.path.join(images_folder, "*.[jp][pn]g"))  # jpg or png
 
 dataset_dir = "bottle_dataset"
-images_dir = os.path.join(dataset_dir, "images", "train", "NOK")
-labels_dir = os.path.join(dataset_dir, "labels", "train", "NOK")
+images_dir = os.path.join(dataset_dir, "images", "train", "OK")
+labels_dir = os.path.join(dataset_dir, "labels", "train", "OK")
 os.makedirs(images_dir, exist_ok=True)
 os.makedirs(labels_dir, exist_ok=True)
 
-cls_id = 1  # NOK class
+cls_id = 0  # OK class
 
 for img_path in images:
     img = cv2.imread(img_path)
@@ -42,4 +42,4 @@ for img_path in images:
                 height = (y2 - y1) / h
                 f.write(f"{cls_id} {x_center} {y_center} {width} {height}\n")
 
-print(f"Processed {len(images)} NOK images and saved labels.")
+print(f"Processed {len(images)} OK images and saved labels.")

@@ -17,9 +17,9 @@ import pandas as pd
 import csv
 import os
 
-
+#detect/gasbottle_ok_nok_final_try23/weights/best.pt
 # Input options
-MODEL_PATH = "runs/detect/train26/weights/best.pt"
+MODEL_PATH = "runs/detect/gasbottle_ok_nok_final_try23/weights/best.pt"
 INPUT_VIDEO_FPS = 60
 EXTRA_CAMERA_DELAY = 1  # Delay in seconds
 MAX_FRAMES = 1000000 # The amount of frames to process before quitting
@@ -80,15 +80,21 @@ VERBOSE_PERF = False # Show performance info
 VERBOSE_PLOT = False # Plot the box size algorithm data
 VERBOSE_MEMO = True # Show memory info
 
+# results
+CLASSIFICATION_CSV = "bottle_classifications.csv"
+CENTER_THRESHOLD = 0.5
+
+
+
 def main():
     
     # Create cameras
     cameras: list[Camera] = [
-        Camera('Top', 'videos/14_55/14_55_top_cropped.mp4', start_delay=3),
-        Camera('Front', 'videos/14_55/14_55_front_cropped.mp4', start_delay=0),
+        Camera('Top', 'videos/14_55_top_cropped.mp4', start_delay=3),
+        Camera('Front', 'videos/14_55_front_cropped.mp4', start_delay=0),
         
-        Camera('Back Left', 'videos/14_55/14_55_back_left_cropped.mp4', start_delay=2),
-        Camera('Back Right', 'videos/14_55/14_55_back_right_cropped.mp4', start_delay=1, start_index=-1),
+        Camera('Back Left', 'videos/14_55_back_left_cropped.mp4', start_delay=2),
+        Camera('Back Right', 'videos/14_55_back_right_cropped.mp4', start_delay=1, start_index=-1),
     ]
     
     bottle_tracker = BottleTracker(cameras)
@@ -137,6 +143,29 @@ def save_ocr_to_csv(bottle_id, camera_name, frame_number, ocr_text, confidence, 
             writer.writerow(new_entry)
     except Exception as e:
         log(f"Error writing to CSV: {e}")
+
+def save_classification_to_csv(bottle_id, classification, pushed_by_ai=True):
+    """Save bottle classification to CSV file"""
+    csv_file = CLASSIFICATION_CSV
+    
+    new_entry = {
+        'bottle_id': bottle_id,
+        'pushed_by_ai': pushed_by_ai,
+        'classification': classification,
+        'timestamp': time()
+    }
+    
+    file_exists = os.path.isfile(csv_file)
+    
+    try:
+        with open(csv_file, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=new_entry.keys())
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(new_entry)
+        log(f"Saved classification: Bottle {bottle_id} = {classification}")
+    except Exception as e:
+        log(f"Error writing classification to CSV: {e}")
 
 def extract_text_from_roi(reader, frame, x1, y1, x2, y2):
     """Extract text from a region of interest"""
@@ -324,7 +353,35 @@ class Bottle:
         self.relative_x = 0.0
         self.relative_y = 0.0
         self.scale = 1.0
+
+        self.has_passed_center = False
+        self.classification_saved = False
+        self.previous_relative_x = 0.0
     
+
+    def check_and_save_classification(self, camera_name):
+        """Check if bottle has crossed center and save classification if needed"""
+        # Only save once per bottle
+        if self.classification_saved:
+            return
+        
+        # Check if bottle has crossed the center threshold
+        crossed_center = (self.previous_relative_x < CENTER_THRESHOLD and 
+                         self.relative_x >= CENTER_THRESHOLD)
+        
+        if crossed_center and self.index > 0:  # Only for promoted bottles
+            classification = "OK" if self.is_ok else "NOK"
+            # pushed_by_ai is True when bottle is NOK (AI decides to push/remove it)
+            pushed_by_ai = not self.is_ok  # True if NOK, False if OK
+            
+            save_classification_to_csv(self.index, classification, pushed_by_ai=pushed_by_ai)
+            self.classification_saved = True
+            self.has_passed_center = True
+            log(f"Camera {camera_name}: Bottle {self.index} crossed center - Classification: {classification}, Pushed by AI: {pushed_by_ai}")
+        
+        # Update previous position for next frame
+        self.previous_relative_x = self.relative_x
+
     def add_ocr_result(self, text, confidence, frame_number):
         """Add OCR result and track the best one"""
         self.ocr_attempts += 1
@@ -366,7 +423,7 @@ class Bottle:
         if is_ok is not None:
             self.is_ok = is_ok
         self.times_seen += 1
-    
+        
     def calculate_size_change_from_x_number_of_frames(self, x) -> float:
         if len(self.bottle_size_dist_history) < x:
             return 0.0
@@ -953,7 +1010,8 @@ class TrackingAlgorithm(Enum):
     SIZE = 1
     SIZE_CHANGE = 2
 
-type Box = tuple[float, float, float, float]  # x_center, y_center, width, height
+# Type alias for a bounding box: (x_center, y_center, width, height)
+Box = tuple[float, float, float, float]
 
 class BottleTracker(FrameGenerator):
     cameras: list[Camera]
@@ -1316,6 +1374,10 @@ class BottleTracker(FrameGenerator):
                                     
                                         
                                     if bottle is not None:
+                                        # Check if bottle crossed center and save classification
+                                        bottle.check_and_save_classification(camera.name)
+                                        
+                                        # Existing OCR call
                                         camera.perform_ocr_on_bottle(output_frame, bottle)
                                     
                                     
@@ -1512,6 +1574,38 @@ class BottleTracker(FrameGenerator):
         except Exception as e:
             log(f"Error generating OCR summary: {e}")
 
+    def print_classification_summary(self):
+        """Print a summary of all classifications"""
+        if not os.path.exists(CLASSIFICATION_CSV):
+            log("No classifications saved.")
+            return
+        
+        try:
+            df = pd.read_csv(CLASSIFICATION_CSV)
+            if df.empty:
+                log("No classification results.")
+                return
+            
+            log("\n=== Classification Summary ===")
+            log(f"Total bottles classified: {len(df)}")
+            
+            ok_count = len(df[df['classification'] == 'OK'])
+            nok_count = len(df[df['classification'] == 'NOK'])
+            
+            log(f"OK bottles: {ok_count}")
+            log(f"NOK bottles: {nok_count}")
+            
+            if len(df) > 0:
+                log(f"OK percentage: {ok_count/len(df)*100:.1f}%")
+            
+            log(f"\nDetailed results:")
+            for _, row in df.iterrows():
+                log(f"Bottle {row['bottle_id']}: {row['classification']} (AI: {row['pushed_by_ai']})")
+            
+            log(f"\nFull results saved to: {CLASSIFICATION_CSV}")
+        except Exception as e:
+            log(f"Error reading classification summary: {e}")        
+
     # Boring functions
 
     def split_array(self, arr, max_length):
@@ -1523,9 +1617,15 @@ class BottleTracker(FrameGenerator):
 
     def release(self):
         self.stop_preprocessing()
-        for camera in self.cameras: camera.release()
+        for camera in self.cameras: 
+            camera.release()
+        
+        # Print summaries before closing
+        self.print_classification_summary()
+        self.print_ocr_summary()  # If OCR is enabled
+        
         cv2.destroyAllWindows()
-    
+        
     
 
 if __name__ == '__main__':

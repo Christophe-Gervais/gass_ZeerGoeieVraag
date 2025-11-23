@@ -1,9 +1,3 @@
 ultralytics
 dotenv
 cv2
-easyocr
-pandas
-numpy
-matplotlib
-scipy
-opencv-python

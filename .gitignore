@@ -9,5 +9,3 @@ inference_saved_frames
 bottle_dataset/
 extra_ok_images/
 extra_nok_images/
-test/
-merged_bottle_dataset/

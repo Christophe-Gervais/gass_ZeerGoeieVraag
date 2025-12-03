@@ -81,7 +81,7 @@ VERBOSE_PLOT = False # Plot the box size algorithm data
 VERBOSE_MEMO = True # Show memory info
 
 # results
-CLASSIFICATION_CSV = "csv/bottle_classifications.csv"
+CLASSIFICATION_CSV = "csv/bottle_classifications_13_22_test.csv"
 CENTER_THRESHOLD = 0.5
 
 
@@ -90,11 +90,11 @@ def main():
     
     # Create cameras
     cameras: list[Camera] = [
-        Camera('Top', 'videos/13_44_top_cropped.mp4', start_delay=3),
-        Camera('Front', 'videos/13_44_front_cropped.mp4', start_delay=0),
+        Camera('Top', 'videos/13_32_test_top_cropped.mp4', start_delay=2),
+        Camera('Front', 'videos/13_32_test_front_cropped.mp4', start_delay=-3),
         
-        Camera('Back Left', 'videos/13_44_back_left_cropped.mp4', start_delay=2),
-        Camera('Back Right', 'videos/13_44_back_right_cropped.mp4', start_delay=1, start_index=-1),
+        Camera('Back Left', 'videos/13_32_test_back_left_cropped.mp4', start_delay=1),
+        Camera('Back Right', 'videos/13_32_test_back_right_cropped.mp4', start_delay=2, start_index=-1),
     ]
     
     bottle_tracker = BottleTracker(cameras)

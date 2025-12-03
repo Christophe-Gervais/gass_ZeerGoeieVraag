@@ -1,8 +1,8 @@
 import pandas as pd
 
 # Load CSVs
-df_cls = pd.read_csv("csv/bottle_classification_1344.csv")
-df_ocr = pd.read_csv("bottle_ocr_filtered_13_44.csv")
+df_cls = pd.read_csv("csv/bottle_classifications_13_22_test.csv")
+df_ocr = pd.read_csv("csv/bottle_ocr_filtered_13_22_test.csv")
 
 # Replace empty strings or NaN in OCR with "?"
 df_ocr["tarra"] = df_ocr["tarra"].fillna("?").replace("", "?")

@@ -5,8 +5,8 @@ import numpy as np
 # LOAD CSV FILES
 # =============================================================================
 
-gt = pd.read_csv("csv/groundtruth_1344.csv")
-my = pd.read_csv("csv/merge_results_1344.csv")
+gt = pd.read_csv("csv/groundtruth_13_32_test.csv")
+my = pd.read_csv("csv/merge_results_13_22_test.csv")
 
 # =============================================================================
 # CLEAN COLUMNS & IDS

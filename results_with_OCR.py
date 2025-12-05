@@ -117,6 +117,43 @@ f3 = (
 )
 
 # =============================================================================
+# PUSH METRICS INCLUDING UNREADABLE TARA (with F2 and F3 scores)
+# =============================================================================
+
+# Create enhanced push logic: push if (pushed_by_ai OR tara unreadable)
+df_push_enhanced = df_push.copy()
+df_push_enhanced = df_push_enhanced.join(my_tara_year[["tarra_ai"]])
+df_push_enhanced["tarra_ai_clean"] = pd.to_numeric(df_push_enhanced["tarra_ai"], errors="coerce")
+df_push_enhanced["tarra_unreadable"] = df_push_enhanced["tarra_ai_clean"].isna()
+df_push_enhanced["pushed_by_ai_enhanced"] = (
+    df_push_enhanced["pushed_by_ai"] | df_push_enhanced["tarra_unreadable"]
+)
+
+h2_enhanced = df_push_enhanced["pushed_by_ai_enhanced"].sum()
+correct_pushes_enhanced = (df_push_enhanced["pushed_by_ai_enhanced"] & df_push_enhanced["is_nok_push"]).sum()
+
+recall_push_enhanced = correct_pushes_enhanced / x1 if x1 > 0 else 0
+precision_push_enhanced = correct_pushes_enhanced / h2_enhanced if h2_enhanced > 0 else 0
+f1_enhanced = (
+    2 * precision_push_enhanced * recall_push_enhanced / (precision_push_enhanced + recall_push_enhanced) 
+    if (precision_push_enhanced + recall_push_enhanced) > 0 else 0
+)
+
+# F2 score
+f2_enhanced = (
+    (1 + beta2**2) * precision_push_enhanced * recall_push_enhanced / 
+    ((beta2**2 * precision_push_enhanced) + recall_push_enhanced) 
+    if (precision_push_enhanced + recall_push_enhanced) > 0 else 0
+)
+
+# F3 score
+f3_enhanced = (
+    (1 + beta3**2) * precision_push_enhanced * recall_push_enhanced / 
+    ((beta3**2 * precision_push_enhanced) + recall_push_enhanced) 
+    if (precision_push_enhanced + recall_push_enhanced) > 0 else 0
+)
+
+# =============================================================================
 # STRICT CLASSIFICATION METRICS
 # =============================================================================
 
@@ -249,6 +286,20 @@ print(f"Precision push: {precision_push:.2%}")
 print(f"F1 score: {f1:.4f}")
 print(f"F2 score: {f2:.4f}")
 print(f"F3 score: {f3:.4f}")
+
+print("\n=== PUSH PERFORMANCE (ENHANCED - includes unreadable tara) ===")
+print(f"Total bottles: {TOTAL}")
+print(f"Groundtruth pushed: {x1}/{TOTAL}")
+print(f"Bottles also pushed by AI (enhanced): {correct_pushes_enhanced}/{x1}")
+print(f"Recall push (enhanced): {recall_push_enhanced:.2%}")
+print(f"Total pushed by AI (enhanced): {h2_enhanced}/{TOTAL}")
+print(f"  - Originally pushed: {h2}")
+print(f"  - Also pushed due to unreadable tara: {h2_enhanced - h2}")
+print(f"Correct pushes by AI (enhanced): {correct_pushes_enhanced}/{h2_enhanced}")
+print(f"Precision push (enhanced): {precision_push_enhanced:.2%}")
+print(f"F1 score (enhanced): {f1_enhanced:.4f}")
+print(f"F2 score (enhanced): {f2_enhanced:.4f}")
+print(f"F3 score (enhanced): {f3_enhanced:.4f}")
 
 print("\n=== CLASSIFICATION PERFORMANCE ===")
 print(f"Total bottles: {len(df_class)}")

@@ -19,7 +19,7 @@ import os
 
 #detect/gasbottle_ok_nok_final_try23/weights/best.pt
 # Input options
-MODEL_PATH = "runs/detect/gasbottle_ok_nok_final_try23/weights/best.pt"
+MODEL_PATH = "runs/detect/train26/weights/best.pt"
 INPUT_VIDEO_FPS = 60
 EXTRA_CAMERA_DELAY = 1  # Delay in seconds
 MAX_FRAMES = 1000000 # The amount of frames to process before quitting
@@ -87,14 +87,16 @@ CENTER_THRESHOLD = 0.5
 
 
 def main():
+
+    prefix = "14_55/14_55"
     
     # Create cameras
     cameras: list[Camera] = [
-        Camera('Top', 'videos/13_44_top_cropped.mp4', start_delay=3),
-        Camera('Front', 'videos/13_44_front_cropped.mp4', start_delay=0),
+        Camera('Top', f'videos/{prefix}_top_cropped.mp4', start_delay=3),
+        Camera('Front', f'videos/{prefix}_front_cropped.mp4', start_delay=0),
         
-        Camera('Back Left', 'videos/13_44_back_left_cropped.mp4', start_delay=2),
-        Camera('Back Right', 'videos/13_44_back_right_cropped.mp4', start_delay=1, start_index=-1),
+        Camera('Back Left', f'videos/{prefix}_back_left_cropped.mp4', start_delay=2),
+        Camera('Back Right', f'videos/{prefix}_back_right_cropped.mp4', start_delay=1, start_index=-1),
     ]
     
     bottle_tracker = BottleTracker(cameras)
@@ -652,6 +654,10 @@ class Camera(FrameGenerator):
     def __init__(self, name: str, video_path: str, start_delay: int = 0, start_index: int = 0):
         super().__init__()
         self.name = name
+
+        if not os.path.isfile(video_path):
+            return
+
         self.video_path = video_path
         input_path = Path(video_path)
         

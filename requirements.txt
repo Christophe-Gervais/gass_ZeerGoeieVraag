@@ -1,3 +1,6 @@
 ultralytics
 dotenv
-cv2
+opencv-python
+torch
+easyocr
+pandas

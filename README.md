@@ -403,6 +403,45 @@ python inference_tracking.py
 | YOLO11x finetuned     | Detection       | 0.98      | 1.00   | 0.99  | Meest accurate       |
 | Classification model   | OK/NOK         | 0.92      | 0.87   | 0.89  | Met OCR features     |
 
+
+Performance on video 13_44 :
+
+|Video 13_44 PUSH_FILL |results|
+|-------------------------|-----------------------|
+| Groundtruth pushed| 6/154 |
+| AI pushed total | 14/154 | 
+| Correct AI pushes | 3/6 |
+| Recall(Push) | 0.5 |
+| Precision(Push) | 0.214 |
+| F1 / F2 / F3 | 0.3000 / 0.3947 / 0.4412 |
+| Dangerous Fills | 14/81(total tara read) => 17,3% |
+| RMS-E | 2.2237 kg |
+| STDEV | 2.2354 kg |
+
+|Video 13_32 PUSH_FILL (Without pushing non read tara)|results|
+|-------------------------|-----------------------|
+| Groundtruth pushed| 12/120 |
+| AI pushed total | 11/120 | 
+| Correct AI pushes | 5/12 |
+| Recall(Push) | 0.416 |
+| Precision(Push) | 0.454 |
+| F1 / F2 / F3 | 0.4348 / 0.4237 / 0.4202 |
+| Dangerous Fills | 25/65(total tara read) => 38.5% |
+| RMS-E | 3.4658 kg |
+| STDEV | 3.3620 kg |
+
+|Video 13_32 PUSH_FILL (With pushing non read tara)|results|
+|-------------------------|-----------------------|
+| Groundtruth pushed| 12/120 |
+| AI pushed total | 55/120 | 
+| Correct AI pushes | 10/12 |
+| Recall(Push) | 0.833 |
+| Precision(Push) | 0.181 |
+| F1 / F2 / F3 | 0.2985 / 0.4854 / 0.6135 |
+| Dangerous Fills | 25/65(total tara read) => 38.5% |
+| RMS-E | 3.4658 kg |
+| STDEV | 3.3620 kg |
+
 ---
 
 ## 📝 CSV Output Formats

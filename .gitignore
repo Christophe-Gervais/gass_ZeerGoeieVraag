@@ -1,6 +1,4 @@
-yolo11m.pt
-yolo11n.pt
-yolo11x_finetuned_bottles_on_site_v3.pt
+*.pt
 runs
 images
 models

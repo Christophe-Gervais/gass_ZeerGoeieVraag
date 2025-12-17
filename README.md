@@ -1,5 +1,7 @@
 # 🔥 Gas Bottle Detection & Classification System
-*AI Applications – FINAL | Group: ZeerGoeieVraag | Date: 8 December 2025*
+*AI Applications – FINAL | Group: ZeerGoeieVraag | Date: 19 December 2025*
+
+Authors: *Dylan Hendrickx, Brecht De Roover, Christophe Gervais, Lasse Lauwerys*
 
 ---
 
@@ -43,14 +45,8 @@ mkdir bottle_dataset/labels
 mkdir csv
 ```
 
-### 3️⃣ Download data van MinIO
-
-```bash
-# Download videos en images van MinIO server
-python minio_download.py
-```
-
-### 4️⃣ Run het systeem
+### 3️⃣ Run het systeem
+Geef een model mee
 
 #### Voor Detection, Tracking & Classification:
 ```bash
@@ -69,14 +65,16 @@ Open de notebook en run alle cellen:
 jupyter notebook inference_tracking_batched_async_ocr.ipynb
 ```
 
-### 5️⃣ Performance Evaluatie
+### 4️⃣ Performance Evaluatie
 
 ```bash
+jupyter notebook filtering_ocr_results.ipynb
+
+# Merged ocr results met classification
+python merge_csv_ocr_classification.py
+
 # Bekijk de volledige performance metrics:
 python results_with_OCR.py
-
-# Of zonder OCR data:
-python results_without_OCR.py
 ```
 
 Dit geeft je:
@@ -400,8 +398,7 @@ python inference_tracking.py
 |------------------------|-----------------|-----------|--------|-------|----------------------|
 | YOLO11n               | Detection       | 0.94      | 1.00   | 0.97  | Snelste model        |
 | YOLO11m               | Detection       | 0.96      | 1.00   | 0.98  | Beste balans         |
-| YOLO11x finetuned     | Detection       | 0.98      | 1.00   | 0.99  | Meest accurate       |
-| Classification model   | OK/NOK         | 0.92      | 0.87   | 0.89  | Met OCR features     |
+| Classification model   | OK/NOK         | 0.92      | 0.87   | 0.89  | Kan NOK en OK onderscheiden     |
 
 
 Performance on video 13_44 :

@@ -17,9 +17,8 @@ import pandas as pd
 import csv
 import os
 
-#detect/gasbottle_ok_nok_final_try23/weights/best.pt
 # Input options
-MODEL_PATH = "runs/detect/gasbottle_ok_nok_final_try23/weights/best.pt"
+MODEL_PATH = "BestModel.pt"
 INPUT_VIDEO_FPS = 60
 EXTRA_CAMERA_DELAY = 1  # Delay in seconds
 MAX_FRAMES = 1000000 # The amount of frames to process before quitting

@@ -46,7 +46,7 @@ mkdir csv
 ```
 
 ### 3️⃣ Run het systeem
-Geef een model mee
+*2 .pt models worden meegegeven voor starters. ModelBest.pt is voor classification, ModelOCR.pt is voor OCR*
 
 #### Voor Detection, Tracking & Classification:
 ```bash

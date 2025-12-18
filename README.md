@@ -43,6 +43,9 @@ mkdir bottle_dataset/labels
 
 # Maak de csv folder aan (voor groundtruth en resultaten)
 mkdir csv
+
+# Maak groundtruth csv en voeg die toe in de csv folder
+Primagaz_status,id,classification,year,tarra
 ```
 
 ### 3️⃣ Run het systeem
